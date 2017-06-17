@@ -9,6 +9,7 @@ SET(DGTAL_TOOLS_SRC
   generic3dNormalEstimators
   curvatureScaleSpaceBCC
   eulerCharacteristic
+  3dCorrectedNormalCurrent
 )
 
 if ( WITH_VISU3D_QGLVIEWER )
