@@ -53,6 +53,7 @@
 #include "DGtal/base/Common.h"
 #include "DGtal/base/Clone.h"
 #include "DGtal/math/MPolynomial.h"
+#include "DGtal/math/Statistic.h"
 #include "DGtal/io/readers/MPolynomialReader.h"
 #include "DGtal/shapes/implicit/ImplicitPolynomial3Shape.h"
 #include "DGtal/shapes/GaussDigitizer.h"
@@ -101,6 +102,7 @@ namespace DGtal
     typedef typename Surface::Surfel                 Surfel;
     typedef functors::ShapeGeometricFunctors::ShapeNormalVectorFunctor<ImplicitShape> NormalFunctor;
     typedef TrueDigitalSurfaceLocalEstimator<KSpace, ImplicitShape, NormalFunctor> TrueNormalEstimator;
+    typedef DGtal::Statistic<Scalar>                 AngleDevStatistic;
     
     // ------------------- parsing related functions -----------------------------
     
@@ -541,6 +543,28 @@ namespace DGtal
 		      [] ( RealVector rw, RealVector w )
 		      { return rw.dot( w ) >= 0.0 ? w : -w; } );
     }
+
+    /// Computes the statistic that measures the angle differences
+    /// between the two arrays of unit vectors.
+    ///
+    /// @param[in] v1 the first array of unit vectors (normals)
+    /// @param[in] v2 the second array of unit vectors (normals)
+    /// @return their angle difference as a statistic.
+    static AngleDevStatistic
+    measureAngleDeviation( const std::vector< RealVector > & v1,
+			   const std::vector< RealVector > & v2 )
+    {
+      AngleDevStatistic stat;
+      for ( auto it1 = v1.cbegin(), it2 = v2.cbegin(), itE1 = v1.end();
+	    it1 != itE1; ++it1, ++it2 )
+	{
+          Scalar angle_error = acos( (*it1).dot( *it2 ) );
+          stat.addValue( angle_error );
+	}
+      stat.terminate();
+      return stat;
+    }
+
   }; // END of class EstimatorHelpers
 
 } // namespace DGtal

@@ -134,23 +134,29 @@ int main( int argc, char** argv )
   trace.endBlock();
 
   trace.beginBlock( "Compute true normal estimations" );
-  // auto h       = vm[ "gridstep" ].as<double>();
+  auto h        = vm[ "gridstep" ].as<double>();
   auto surfels  = EH::computeDepthFirstSurfelRange( surface );
   auto tnormals = EH::computeTrueNormals( K, shape, surfels );
   trace.endBlock();
   trace.beginBlock( "Compute VCM normal estimations" );
   auto vnormals = EH::computeVCMNormals( vm, surface, surfels );
-  for ( unsigned int i = 0; i < surfels.size(); ++i )
-    std::cout << "- " << surfels[ i ] << " -> " << ( tnormals[ i ] - vnormals[ i ] ).norm()
-	      << std::endl;
+  auto vstat    = EH::measureAngleDeviation( tnormals, vnormals );
   trace.endBlock();
   trace.beginBlock( "Compute II normal estimations" );
   auto inormals = EH::computeIINormals( vm, K, bimage, surfels );
   EH::orientVectors( tnormals, inormals ); // necessary for II
-  for ( unsigned int i = 0; i < surfels.size(); ++i )
-    std::cout << "- " << surfels[ i ] << " -> " << ( tnormals[ i ] - inormals[ i ] ).norm()
-	      << std::endl;
+  auto istat    = EH::measureAngleDeviation( tnormals, inormals );
   trace.endBlock();
+  trace.info() << "- VCM h=" << h << " L1=" << vstat.mean() // L1
+	       << " L2=" << sqrt( vstat.unbiasedVariance()
+				  + vstat.mean()*vstat.mean() ) // L2
+	       << " Loo=" << vstat.max() // Loo
+	       << std::endl;
+  trace.info() << "- II  h=" << h << " L1=" << istat.mean() // L1
+	       << " L2=" << sqrt( istat.unbiasedVariance()
+				  + istat.mean()*istat.mean() ) // L2
+	       << " Loo=" << istat.max() // Loo
+	       << std::endl;
 
 
   return 0;
