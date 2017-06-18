@@ -90,11 +90,12 @@ int main( int argc, char** argv )
   typedef Z3i::KSpace                KSpace;
   typedef EstimatorHelpers< KSpace > EH;
   // parse command line ----------------------------------------------
-  po::options_description general_opt("Allowed options are");
-  general_opt.add_options()("help,h", "display this message");
-  EH::optionsImplicitShape ( general_opt );
-  EH::optionsDigitizedShape( general_opt );
-  EH::optionsNoisyImage    ( general_opt );
+  po::options_description general_opt( "Allowed options are" );
+  general_opt.add_options()  ( "help,h", "display this message" );
+  EH::optionsImplicitShape   ( general_opt );
+  EH::optionsDigitizedShape  ( general_opt );
+  EH::optionsNoisyImage      ( general_opt );
+  EH::optionsNormalEstimators( general_opt );
 
   po::variables_map vm;
   bool parseOK = EH::args2vm( general_opt, argc, argv, vm );
@@ -130,6 +131,14 @@ int main( int argc, char** argv )
   trace.info() << "- digital shape has " << nb << " voxels." << std::endl;
   auto surface = EH::makeDigitalSurface( K, bimage );
   trace.info() << "- surface component has " << surface->size()<< " surfels." << std::endl;
+  trace.endBlock();
+
+  trace.beginBlock( "Compute true normal estimations" );
+  // auto h       = vm[ "gridstep" ].as<double>();
+  auto surfels = EH::computeDepthFirstSurfelRange( surface );
+  auto normals = EH::computeTrueNormals( K, shape, surfels );
+  for ( unsigned int i = 0; i < surfels.size(); ++i )
+    std::cout << "- " << surfels[ i ] << " -> " << normals[ i ] << std::endl;
   trace.endBlock();
 
 

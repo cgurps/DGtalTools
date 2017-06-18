@@ -56,12 +56,16 @@
 #include "DGtal/io/readers/MPolynomialReader.h"
 #include "DGtal/shapes/implicit/ImplicitPolynomial3Shape.h"
 #include "DGtal/shapes/GaussDigitizer.h"
+#include "DGtal/shapes/ShapeGeometricFunctors.h"
 #include "DGtal/images/ImageContainerBySTLVector.h"
 #include "DGtal/topology/LightImplicitDigitalSurface.h"
 #include "DGtal/topology/DigitalSurface.h"
 #include "DGtal/topology/SurfelAdjacency.h"
 #include "DGtal/topology/helpers/Surfaces.h"
+#include "DGtal/graph/DepthFirstVisitor.h"
+#include "DGtal/graph/GraphVisitorRange.h"
 #include "DGtal/geometry/volumes/KanungoNoise.h"
+#include "DGtal/geometry/surfaces/estimation/TrueDigitalSurfaceLocalEstimator.h"
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -90,6 +94,8 @@ namespace DGtal
     typedef LightImplicitDigitalSurface< KSpace, BinaryImage > SurfaceContainer;
     typedef DigitalSurface< SurfaceContainer >       Surface;
     typedef typename Surface::Surfel                 Surfel;
+    typedef functors::ShapeGeometricFunctors::ShapeNormalVectorFunctor<ImplicitShape> NormalFunctor;
+    typedef TrueDigitalSurfaceLocalEstimator<KSpace, ImplicitShape, NormalFunctor> TrueNormalEstimator;
     
     // ------------------- parsing related functions -----------------------------
     
@@ -327,7 +333,14 @@ namespace DGtal
 	return makeNoisyImage( dshape, noiseLevel );
     }
 
+    /// Builds a digital surface from a space \a K and a binary image \a bimage.
+    ///
     /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
+    /// @param[in] bimage a binary image representing the characteristic function of a digital shape.
+    ///
+    /// @return a smart pointer on a (light) digital surface that
+    /// represents the boundary of the digital shape (at least a big
+    /// component).
     static CountedPtr<Surface>
     makeDigitalSurface( const KSpace& K, CountedPtr<BinaryImage> bimage )
     {
@@ -362,6 +375,46 @@ namespace DGtal
       return ptrSurface;
     }
 
+    /// Given a digital surface, returns a vector of surfels in a depth-first
+    /// traversal order (best for Integral Invariant).
+    ///
+    /// @param[in] surface a smort pointer on a digital surface.
+    /// @return a range of surfels as a vector.
+    static std::vector< Surfel >
+    computeDepthFirstSurfelRange( CountedPtr<Surface> surface )
+    {
+      typedef DepthFirstVisitor< Surface > Visitor;
+      typedef GraphVisitorRange< Visitor > VisitorRange;
+      std::vector< Surfel > result;
+      VisitorRange range( new Visitor( *surface, *( surface->begin() ) ) );
+      std::for_each( range.begin(), range.end(),
+		     [&result] ( Surfel s ) { result.push_back( s ); } );
+      return result;
+    }
+       
+
+    /// Given a space \a K, an implicit \a shape, a sequence of \a
+    /// surfels, and a gridstep \a h, returns the true normals at the
+    /// specified surfels, in the same order.
+    ///
+    /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
+    /// @param[in] shape the implicit shape.
+    /// @param[in] surfels the sequence of surfels at which we compute the normals
+    static std::vector< RealVector >
+    computeTrueNormals( const KSpace& K,
+			CountedPtr<ImplicitShape> shape,
+			std::vector< Surfel > surfels )
+    {
+      TrueNormalEstimator true_estimator;
+      Scalar              h = 1.0; // useless here.
+      true_estimator.attach( *shape );
+      true_estimator.setParams( K, NormalFunctor(), 20, 0.1, 0.01 );
+      true_estimator.init( h, surfels.begin(), surfels.end() );
+      std::vector< RealVector > n_true_estimations;
+      true_estimator.eval( surfels.begin(), surfels.end(),
+			   std::back_inserter( n_true_estimations ) );
+      return n_true_estimations;
+    }
     
   }; // END of class EstimatorHelpers
 
