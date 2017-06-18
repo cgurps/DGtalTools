@@ -97,15 +97,6 @@ int main( int argc, char** argv )
 
   po::variables_map vm;
   bool parseOK = EH::args2vm( general_opt, argc, argv, vm );
-  // try
-  //   {
-  //     po::store( po::parse_command_line( argc, argv, general_opt ), vm );
-  //   }
-  // catch( const std::exception & ex )
-  //   {
-  //     parseOK = false;
-  //     trace.error() << " Error checking program options: " << ex.what() << std::endl;
-  //   }
   bool neededArgsGiven=true;
 
   if (parseOK && !(vm.count("polynomial"))){
@@ -129,6 +120,13 @@ int main( int argc, char** argv )
   trace.beginBlock( "Make implicit shape and digitized shape" );
   auto shape  = EH::makeImplicitShape ( vm );
   auto dshape = EH::makeDigitizedShape( vm, shape, K );
+  auto size   = dshape->getDomain().upperBound() - dshape->getDomain().lowerBound();
+  std::cout << "- Domain size is " << ( size[ 0 ] + 1 ) << " x " << ( size[ 1 ] + 1 )
+	    << " x " << ( size[ 2 ] + 1 ) << std::endl;
+  auto bimage = EH::makeImage( dshape );
+  unsigned int nb = 0;
+  std::for_each( bimage->cbegin(), bimage->cend(), [&nb] ( bool v ) { nb += v ? 1 : 0; } );
+  std::cout << "- digital shape has " << nb << " voxels." << std::endl; 
   trace.endBlock();
 
 

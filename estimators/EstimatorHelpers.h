@@ -49,13 +49,16 @@
 #include <boost/program_options/parsers.hpp>
 #include <boost/program_options/variables_map.hpp>
 // always include EigenSupport.h before any other Eigen headers
-#include "DGtal/math/linalg/EigenSupport.h"
+// #include "DGtal/math/linalg/EigenSupport.h"
 #include "DGtal/base/Common.h"
 #include "DGtal/base/Clone.h"
 #include "DGtal/math/MPolynomial.h"
 #include "DGtal/io/readers/MPolynomialReader.h"
 #include "DGtal/shapes/implicit/ImplicitPolynomial3Shape.h"
 #include "DGtal/shapes/GaussDigitizer.h"
+#include "DGtal/images/ImageContainerBySTLVector.h"
+#include "DGtal/topology/LightImplicitDigitalSurface.h"
+#include "DGtal/topology/DigitalSurface.h"
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -80,7 +83,10 @@ namespace DGtal
     typedef ImplicitPolynomial3Shape<Space>          ImplicitShape;
     typedef GaussDigitizer< Space, ImplicitShape >   ImplicitDigitalShape;
     typedef typename ImplicitDigitalShape::Domain    Domain;
-
+    typedef ImageContainerBySTLVector<Domain, bool>  BinaryImage;
+    typedef LightImplicitDigitalSurface< KSpace, BinaryImage > SurfaceContainer;
+    typedef DigitalSurface< SurfaceContainer >       Surface;
+    
     // ------------------- parsing related functions -----------------------------
     
     /// Parses command line given as \a argc, \a argv according to \a
@@ -183,7 +189,9 @@ namespace DGtal
     /// Builds a 3D implicit shape from argument "-polynomial".
     ///
     /// @param[in] vm the options sets in the variable map (arguments
-    /// given to the program).
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsImplicitShape.
+    ///
     /// @return a smart pointer on the created implicit shape.
     static CountedPtr<ImplicitShape>
     makeImplicitShape( const po::variables_map& vm )
@@ -208,7 +216,9 @@ namespace DGtal
     /// according to parameters given as arguments to the program.
     ///
     /// @param[in] vm the options sets in the variable map (arguments
-    /// given to the program).
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsDigitizedShape.
+    ///
     /// @param[in] shape the implicit shape.
     /// @param[out] K the Khalimsky space whose domain encompasses the digital shape.
     /// @return a smart pointer on the created implicit digital shape.
@@ -231,8 +241,20 @@ namespace DGtal
 		      << " Error building Khalimsky space K=" << K << std::endl;
       return dshape;
     }
+
+    static CountedPtr<BinaryImage>
+    makeImage( CountedPtr<ImplicitDigitalShape> dshape )
+    {
+      const Domain shapeDomain    = dshape->getDomain();
+      CountedPtr<BinaryImage> img ( new BinaryImage( shapeDomain ) );
+      std::transform( shapeDomain.begin(), shapeDomain.end(),
+		      img->begin(),
+		      [dshape] ( const Point& p ) { return (*dshape)(p); } );
+      // KanungoPredicate* noisified_dshape = new KanungoPredicate( dshape, shapeDomain, noiseLevel );
+      return img;
+    }
     
-  }; // end of class EstimatorHelpers
+  }; // END of class EstimatorHelpers
 
 } // namespace DGtal
 
