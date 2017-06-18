@@ -92,19 +92,20 @@ int main( int argc, char** argv )
   // parse command line ----------------------------------------------
   po::options_description general_opt("Allowed options are");
   general_opt.add_options() ("help,h", "display this message");
-  EH::optionsImplicitShape( general_opt );
+  EH::optionsImplicitShape ( general_opt );
+  EH::optionsDigitizedShape( general_opt );
 
-  bool parseOK = true;
   po::variables_map vm;
-  try
-    {
-      po::store( po::parse_command_line( argc, argv, general_opt ), vm );
-    }
-  catch( const std::exception & ex )
-    {
-      parseOK = false;
-      trace.error() << " Error checking program options: " << ex.what() << std::endl;
-    }
+  bool parseOK = EH::args2vm( general_opt, argc, argv, vm );
+  // try
+  //   {
+  //     po::store( po::parse_command_line( argc, argv, general_opt ), vm );
+  //   }
+  // catch( const std::exception & ex )
+  //   {
+  //     parseOK = false;
+  //     trace.error() << " Error checking program options: " << ex.what() << std::endl;
+  //   }
   bool neededArgsGiven=true;
 
   if (parseOK && !(vm.count("polynomial"))){
@@ -122,8 +123,12 @@ int main( int argc, char** argv )
       return 0;
     }
 
-  trace.beginBlock( "Make implicit shape" );
-  auto shape = EH::makeImplicitShape( vm );
+  // Digital space.
+  KSpace K;
+  
+  trace.beginBlock( "Make implicit shape and digitized shape" );
+  auto shape  = EH::makeImplicitShape ( vm );
+  auto dshape = EH::makeDigitizedShape( vm, shape, K );
   trace.endBlock();
 
 
