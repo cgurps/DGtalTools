@@ -91,9 +91,10 @@ int main( int argc, char** argv )
   typedef EstimatorHelpers< KSpace > EH;
   // parse command line ----------------------------------------------
   po::options_description general_opt("Allowed options are");
-  general_opt.add_options() ("help,h", "display this message");
+  general_opt.add_options()("help,h", "display this message");
   EH::optionsImplicitShape ( general_opt );
   EH::optionsDigitizedShape( general_opt );
+  EH::optionsNoisyImage    ( general_opt );
 
   po::variables_map vm;
   bool parseOK = EH::args2vm( general_opt, argc, argv, vm );
@@ -123,7 +124,7 @@ int main( int argc, char** argv )
   auto size   = dshape->getDomain().upperBound() - dshape->getDomain().lowerBound();
   std::cout << "- Domain size is " << ( size[ 0 ] + 1 ) << " x " << ( size[ 1 ] + 1 )
 	    << " x " << ( size[ 2 ] + 1 ) << std::endl;
-  auto bimage = EH::makeImage( dshape );
+  auto bimage = EH::makeNoisyOrNotImage( vm, dshape );
   unsigned int nb = 0;
   std::for_each( bimage->cbegin(), bimage->cend(), [&nb] ( bool v ) { nb += v ? 1 : 0; } );
   std::cout << "- digital shape has " << nb << " voxels." << std::endl; 

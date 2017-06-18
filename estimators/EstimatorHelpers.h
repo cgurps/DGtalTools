@@ -59,6 +59,7 @@
 #include "DGtal/images/ImageContainerBySTLVector.h"
 #include "DGtal/topology/LightImplicitDigitalSurface.h"
 #include "DGtal/topology/DigitalSurface.h"
+#include "DGtal/geometry/volumes/KanungoNoise.h"
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -183,6 +184,12 @@ namespace DGtal
 	("gridstep,g", po::value< double >()->default_value( 1.0 ), "the gridstep that defines the digitization (often called h). " );
     }
 
+    /// Add options for implicit shape digitization.
+    static void optionsNoisyImage( po::options_description& desc )
+    {
+      desc.add_options()
+	("noise,N", po::value<double>()->default_value( 0.0 ), "the Kanungo noise level l=arg, with l^d the probability that a point at distance d is flipped inside/outside." );
+    }
 
     // ------------------- Shapes related functions --------------------------------
     
@@ -242,6 +249,10 @@ namespace DGtal
       return dshape;
     }
 
+    /// Vectorizes an implicitly defined digital shape into a binary image.
+    ///
+    /// @param[in] dshape a smart pointer on an implicit digital shape.
+    /// @return a smart pointer on a binary image that samples the digital shape.
     static CountedPtr<BinaryImage>
     makeImage( CountedPtr<ImplicitDigitalShape> dshape )
     {
@@ -250,9 +261,56 @@ namespace DGtal
       std::transform( shapeDomain.begin(), shapeDomain.end(),
 		      img->begin(),
 		      [dshape] ( const Point& p ) { return (*dshape)(p); } );
-      // KanungoPredicate* noisified_dshape = new KanungoPredicate( dshape, shapeDomain, noiseLevel );
       return img;
     }
+
+    /// Vectorizes an implicitly defined digital shape into a binary
+    /// image with added Kanungo noise.
+    ///
+    /// @param[in] dshape a smart pointer on an implicit digital shape.
+    ///
+    /// @param[in] noiseLevel the parameter that tunes the amount of
+    /// Kanungo noise (0.0 is none, 0.5 is quite a lot, 1.0 means
+    /// random image).
+    ///
+    /// @return a smart pointer on a binary image that samples the
+    /// digital shape with added noise.
+    static CountedPtr<BinaryImage>
+    makeNoisyImage( CountedPtr<ImplicitDigitalShape> dshape, Scalar noiseLevel )
+    {
+      typedef KanungoNoise< ImplicitDigitalShape, Domain > KanungoPredicate;
+      const Domain shapeDomain    = dshape->getDomain();
+      CountedPtr<BinaryImage> img ( new BinaryImage( shapeDomain ) );
+      KanungoPredicate noisy_dshape( *dshape, shapeDomain, noiseLevel );
+      std::transform( shapeDomain.begin(), shapeDomain.end(),
+		      img->begin(),
+		      [&noisy_dshape] ( const Point& p ) { return noisy_dshape(p); } );
+      return img;
+    }
+
+    /// Vectorizes an implicitly defined digital shape into a binary
+    /// image, and possibly add Kanungo noise to the result depending
+    /// on parameters given in \a vm.
+    ///
+    /// @param[in] vm the options sets in the variable map (arguments
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsNoisyImage.
+    ///
+    /// @param[in] dshape a smart pointer on an implicit digital shape.
+    ///
+    /// @return a smart pointer on a binary image that samples the
+    /// digital shape with added noise.
+    static CountedPtr<BinaryImage>
+    makeNoisyOrNotImage( const po::variables_map& vm,
+			 CountedPtr<ImplicitDigitalShape> dshape )
+    {
+      Scalar noiseLevel = vm[ "noise" ].as<double>();
+      if ( noiseLevel == 0.0 )
+	return makeImage( dshape );
+      else
+	return makeNoisyImage( dshape, noiseLevel );
+    }
+
     
   }; // END of class EstimatorHelpers
 
