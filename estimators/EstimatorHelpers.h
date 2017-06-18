@@ -59,6 +59,8 @@
 #include "DGtal/images/ImageContainerBySTLVector.h"
 #include "DGtal/topology/LightImplicitDigitalSurface.h"
 #include "DGtal/topology/DigitalSurface.h"
+#include "DGtal/topology/SurfelAdjacency.h"
+#include "DGtal/topology/helpers/Surfaces.h"
 #include "DGtal/geometry/volumes/KanungoNoise.h"
 
 
@@ -87,6 +89,7 @@ namespace DGtal
     typedef ImageContainerBySTLVector<Domain, bool>  BinaryImage;
     typedef LightImplicitDigitalSurface< KSpace, BinaryImage > SurfaceContainer;
     typedef DigitalSurface< SurfaceContainer >       Surface;
+    typedef typename Surface::Surfel                 Surfel;
     
     // ------------------- parsing related functions -----------------------------
     
@@ -179,16 +182,29 @@ namespace DGtal
     static void optionsDigitizedShape( po::options_description& desc )
     {
       desc.add_options()
-	("minAABB,a",  po::value<double>()->default_value( -10.0 ), "the min value of the AABB bounding box (domain)" )
-	("maxAABB,A",  po::value<double>()->default_value( 10.0 ), "the max value of the AABB bounding box (domain)" )
-	("gridstep,g", po::value< double >()->default_value( 1.0 ), "the gridstep that defines the digitization (often called h). " );
+	("minAABB,a",  po::value<Scalar>()->default_value( -10.0 ), "the min value of the AABB bounding box (domain)" )
+	("maxAABB,A",  po::value<Scalar>()->default_value( 10.0 ), "the max value of the AABB bounding box (domain)" )
+	("gridstep,g", po::value< Scalar >()->default_value( 1.0 ), "the gridstep that defines the digitization (often called h). " );
     }
 
     /// Add options for implicit shape digitization.
     static void optionsNoisyImage( po::options_description& desc )
     {
       desc.add_options()
-	("noise,N", po::value<double>()->default_value( 0.0 ), "the Kanungo noise level l=arg, with l^d the probability that a point at distance d is flipped inside/outside." );
+	("noise,N", po::value<Scalar>()->default_value( 0.0 ), "the Kanungo noise level l=arg, with l^d the probability that a point at distance d is flipped inside/outside." );
+    }
+
+    /// Add options for implicit shape digitization.
+    static void optionsNormalEstimators( po::options_description& desc )
+    {
+      desc.add_options()
+	("estimator,e", po::value<std::string>()->default_value( "True" ), "the chosen normal estimator: True | VCM | II | Trivial" )
+	("R-radius,R", po::value<Scalar>()->default_value( 5 ), "the constant for parameter R in R(h)=R h^alpha (VCM)." )
+	("r-radius,r", po::value<Scalar>()->default_value( 3 ), "the constant for parameter r in r(h)=r h^alpha (VCM,II,Trivial)." )
+	("kernel,k", po::value<std::string>()->default_value( "hat" ), "the function chi_r, either hat or ball." )
+	("alpha", po::value<Scalar>()->default_value( 0.0 ), "the parameter alpha in r(h)=r h^alpha (VCM)." )
+	("trivial-radius,t", po::value<Scalar>()->default_value( 3 ), "the parameter t defining the radius for the Trivial estimator. Also used for reorienting the VCM." )
+	("embedding,E", po::value<int>()->default_value( 0 ), "the surfel -> point embedding for VCM estimator: 0: Pointels, 1: InnerSpel, 2: OuterSpel." );
     }
 
     // ------------------- Shapes related functions --------------------------------
@@ -304,11 +320,46 @@ namespace DGtal
     makeNoisyOrNotImage( const po::variables_map& vm,
 			 CountedPtr<ImplicitDigitalShape> dshape )
     {
-      Scalar noiseLevel = vm[ "noise" ].as<double>();
+      Scalar noiseLevel = vm[ "noise" ].as<Scalar>();
       if ( noiseLevel == 0.0 )
 	return makeImage( dshape );
       else
 	return makeNoisyImage( dshape, noiseLevel );
+    }
+
+    /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
+    static CountedPtr<Surface>
+    makeDigitalSurface( const KSpace& K, CountedPtr<BinaryImage> bimage )
+    {
+      SurfelAdjacency< KSpace::dimension > surfAdj( true );
+
+      // We have to search for a surfel that belong to a big connected component.
+      CountedPtr<Surface> ptrSurface;
+      Surfel              bel;
+      Scalar              minsize    = bimage->extent().norm();
+      unsigned int        nb_surfels = 0;
+      unsigned int        tries      = 0;
+      do {
+        try { // Search initial bel
+          bel = Surfaces<KSpace>::findABel( K, *bimage, 10000 );
+        } catch (DGtal::InputException e) {
+          trace.error() << "[EstimatorHelpers::makeDigitalSurface]"
+			<< " ERROR Unable to find bel." << std::endl;
+          return ptrSurface;
+        }
+	// this pointer will be acquired by the surface.
+        SurfaceContainer* surfContainer = new SurfaceContainer( K, *bimage, surfAdj, bel );
+        ptrSurface = CountedPtr<Surface>( new Surface( surfContainer ) ); // acquired
+        nb_surfels = ptrSurface->size();
+      } while ( ( nb_surfels < 2 * minsize ) && ( tries++ < 150 ) );
+      if( tries >= 150 )
+        {
+          trace.error() << "[EstimatorHelpers::makeDigitalSurface]"
+			<< "ERROR cannot find a proper bel in a big enough component."
+			<< std::endl;
+          return ptrSurface;
+        }
+      return ptrSurface;
     }
 
     

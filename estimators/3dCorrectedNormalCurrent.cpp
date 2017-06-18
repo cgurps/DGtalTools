@@ -119,15 +119,17 @@ int main( int argc, char** argv )
   KSpace K;
   
   trace.beginBlock( "Make implicit shape and digitized shape" );
-  auto shape  = EH::makeImplicitShape ( vm );
-  auto dshape = EH::makeDigitizedShape( vm, shape, K );
-  auto size   = dshape->getDomain().upperBound() - dshape->getDomain().lowerBound();
-  std::cout << "- Domain size is " << ( size[ 0 ] + 1 ) << " x " << ( size[ 1 ] + 1 )
-	    << " x " << ( size[ 2 ] + 1 ) << std::endl;
-  auto bimage = EH::makeNoisyOrNotImage( vm, dshape );
   unsigned int nb = 0;
+  auto shape   = EH::makeImplicitShape ( vm );
+  auto dshape  = EH::makeDigitizedShape( vm, shape, K );
+  auto size    = dshape->getDomain().upperBound() - dshape->getDomain().lowerBound();
+  trace.info() << "- Domain size is " << ( size[ 0 ] + 1 ) << " x " << ( size[ 1 ] + 1 )
+	       << " x " << ( size[ 2 ] + 1 ) << std::endl;
+  auto bimage  = EH::makeNoisyOrNotImage( vm, dshape );
   std::for_each( bimage->cbegin(), bimage->cend(), [&nb] ( bool v ) { nb += v ? 1 : 0; } );
-  std::cout << "- digital shape has " << nb << " voxels." << std::endl; 
+  trace.info() << "- digital shape has " << nb << " voxels." << std::endl;
+  auto surface = EH::makeDigitalSurface( K, bimage );
+  trace.info() << "- surface component has " << surface->size()<< " surfels." << std::endl;
   trace.endBlock();
 
 
