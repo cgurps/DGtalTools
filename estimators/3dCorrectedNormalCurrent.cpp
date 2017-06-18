@@ -135,10 +135,13 @@ int main( int argc, char** argv )
 
   trace.beginBlock( "Compute true normal estimations" );
   // auto h       = vm[ "gridstep" ].as<double>();
-  auto surfels = EH::computeDepthFirstSurfelRange( surface );
-  auto normals = EH::computeTrueNormals( K, shape, surfels );
+  auto surfels  = EH::computeDepthFirstSurfelRange( surface );
+  auto tnormals = EH::computeTrueNormals( K, shape, surfels );
+  auto vnormals = EH::computeVCMNormals( vm, surface, surfels );
   for ( unsigned int i = 0; i < surfels.size(); ++i )
-    std::cout << "- " << surfels[ i ] << " -> " << normals[ i ] << std::endl;
+    std::cout << "- " << surfels[ i ] << " -> " << ( tnormals[ i ] - vnormals[ i ] ).norm()
+	      << std::endl;
+
   trace.endBlock();
 
 

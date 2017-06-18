@@ -65,7 +65,12 @@
 #include "DGtal/graph/DepthFirstVisitor.h"
 #include "DGtal/graph/GraphVisitorRange.h"
 #include "DGtal/geometry/volumes/KanungoNoise.h"
+#include "DGtal/geometry/volumes/distance/ExactPredicateLpSeparableMetric.h"
 #include "DGtal/geometry/surfaces/estimation/TrueDigitalSurfaceLocalEstimator.h"
+#include "DGtal/geometry/surfaces/estimation/VoronoiCovarianceMeasureOnDigitalSurface.h"
+#include "DGtal/geometry/surfaces/estimation/VCMDigitalSurfaceLocalEstimator.h"
+#include "DGtal/geometry/surfaces/estimation/IIGeometricFunctors.h"
+#include "DGtal/geometry/surfaces/estimation/IntegralInvariantCovarianceEstimator.h"
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -400,20 +405,88 @@ namespace DGtal
     /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
     /// @param[in] shape the implicit shape.
     /// @param[in] surfels the sequence of surfels at which we compute the normals
+    ///
+    /// @return the vector containing the true normals, in the same
+    /// order as \a surfels.
     static std::vector< RealVector >
-    computeTrueNormals( const KSpace& K,
+    computeTrueNormals( const KSpace&             K,
 			CountedPtr<ImplicitShape> shape,
-			std::vector< Surfel > surfels )
+			std::vector< Surfel >     surfels )
     {
-      TrueNormalEstimator true_estimator;
-      Scalar              h = 1.0; // useless here.
+      std::vector< RealVector > n_true_estimations;
+      TrueNormalEstimator       true_estimator;
+      Scalar                    h = 1.0; // useless here.
       true_estimator.attach( *shape );
       true_estimator.setParams( K, NormalFunctor(), 20, 0.1, 0.01 );
       true_estimator.init( h, surfels.begin(), surfels.end() );
-      std::vector< RealVector > n_true_estimations;
       true_estimator.eval( surfels.begin(), surfels.end(),
 			   std::back_inserter( n_true_estimations ) );
       return n_true_estimations;
+    }
+
+    /// Given a digital surface \a surface, a sequence of \a surfels,
+    /// and some parameters \a vm, returns the Voronoi Covariance
+    /// Measure (VCM) estimation at the specified surfels, in the same
+    /// order.
+    ///
+    /// @param[in] vm the options sets in the variable map (arguments
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsNoisyImage.
+    /// @param[in] surface the digital surface
+    /// @param[in] surfels the sequence of surfels at which we compute the normals
+    ///
+    /// @return the vector containing the estimated normals, in the
+    /// same order as \a surfels.
+    static std::vector< RealVector >
+    computeVCMNormals( const po::variables_map& vm,
+		       CountedPtr<Surface>      surface,
+		       std::vector< Surfel >    surfels )
+    {
+      typedef ExactPredicateLpSeparableMetric<Space,2> Metric;
+      std::vector< RealVector > n_estimations;
+      std::string kernel = vm[ "kernel" ].as<std::string>();
+      Scalar      h      = vm[ "gridstep" ].as<Scalar>();
+      Scalar      R      = vm[ "R-radius" ].as<Scalar>();
+      Scalar      r      = vm[ "r-radius" ].as<Scalar>();
+      Scalar      t      = vm[ "trivial-radius" ].as<Scalar>();
+      Scalar      alpha  = vm[ "alpha" ].as<Scalar>();
+      int      embedding = vm[ "embedding" ].as<int>();
+      // Adjust parameters according to gridstep if specified.
+      if ( alpha != 0.0 ) R *= pow( h, alpha-1.0 );
+      if ( alpha != 0.0 ) r *= pow( h, alpha-1.0 );
+      Surfel2PointEmbedding embType = embedding == 0 ? Pointels :
+                                      embedding == 1 ? InnerSpel : OuterSpel;
+      trace.info() << "- R=" << R << " r=" << r << " t=" << t << std::endl;
+      if ( kernel == "hat" ) {
+	typedef functors::HatPointFunction<Point,Scalar>             KernelFunction;
+	typedef VoronoiCovarianceMeasureOnDigitalSurface
+	  < SurfaceContainer, Metric, KernelFunction >               VCMOnSurface;
+	typedef functors::VCMNormalVectorFunctor<VCMOnSurface>       NormalFunctor;
+	typedef VCMDigitalSurfaceLocalEstimator
+	  < SurfaceContainer, Metric, KernelFunction, NormalFunctor> VCMNormalEstimator;
+	KernelFunction chi_r( 1.0, r );
+	VCMNormalEstimator estimator;
+	estimator.attach( *surface );
+	estimator.setParams( embType, R, r, chi_r, t, Metric(), true );
+	estimator.init( h, surfels.begin(), surfels.end() );
+	estimator.eval( surfels.begin(), surfels.end(),
+			std::back_inserter( n_estimations ) );
+      } else if ( kernel == "ball" ) {
+	typedef functors::BallConstantPointFunction<Point,Scalar>    KernelFunction;
+	typedef VoronoiCovarianceMeasureOnDigitalSurface
+	  < SurfaceContainer, Metric, KernelFunction >               VCMOnSurface;
+	typedef functors::VCMNormalVectorFunctor<VCMOnSurface>       NormalFunctor;
+	typedef VCMDigitalSurfaceLocalEstimator
+	  < SurfaceContainer, Metric, KernelFunction, NormalFunctor> VCMNormalEstimator;
+	KernelFunction chi_r( 1.0, r );
+	VCMNormalEstimator estimator;
+	estimator.attach( *surface );
+	estimator.setParams( embType, R, r, chi_r, t, Metric(), true );
+	estimator.init( h, surfels.begin(), surfels.end() );
+	estimator.eval( surfels.begin(), surfels.end(),
+			std::back_inserter( n_estimations ) );
+      }
+      return n_estimations;
     }
     
   }; // END of class EstimatorHelpers
