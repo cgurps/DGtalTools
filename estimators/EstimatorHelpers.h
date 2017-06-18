@@ -425,9 +425,9 @@ namespace DGtal
     }
 
     /// Given a digital surface \a surface, a sequence of \a surfels,
-    /// and some parameters \a vm, returns the Voronoi Covariance
-    /// Measure (VCM) estimation at the specified surfels, in the same
-    /// order.
+    /// and some parameters \a vm, returns the normal Voronoi
+    /// Covariance Measure (VCM) estimation at the specified surfels,
+    /// in the same order.
     ///
     /// @param[in] vm the options sets in the variable map (arguments
     /// given to the program). Recognized parameters are given in \ref
@@ -488,7 +488,59 @@ namespace DGtal
       }
       return n_estimations;
     }
+
+    /// Given a digital surface \a surface, a sequence of \a surfels,
+    /// and some parameters \a vm, returns the normal Integral
+    /// Invariant (VCM) estimation at the specified surfels, in the
+    /// same order.
+    ///
+    /// @param[in] vm the options sets in the variable map (arguments
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsNoisyImage.
+    /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
+    /// @param[in] surfels the sequence of surfels at which we compute the normals
+    ///
+    /// @return the vector containing the estimated normals, in the
+    /// same order as \a surfels.
+    ///
+    /// @note It is better to have surfels in a specific order, as
+    /// given for instance by computeDepthFirstSurfelRange.
+    static std::vector< RealVector >
+    computeIINormals( const po::variables_map& vm,
+		      const KSpace&            K,
+		      CountedPtr<BinaryImage>  bimage,
+		      std::vector< Surfel >    surfels )
+    {
+      typedef functors::IINormalDirectionFunctor<Space> IINormalFunctor;
+      typedef IntegralInvariantCovarianceEstimator
+	<KSpace, BinaryImage, IINormalFunctor>          IINormalEstimator;
+      std::vector< RealVector > n_estimations;
+      Scalar h     = vm[ "gridstep" ].as<Scalar>();
+      Scalar r     = vm[ "r-radius" ].as<Scalar>();
+      Scalar alpha = vm[ "alpha"    ].as<Scalar>();
+      if ( alpha != 0.0 ) r *= pow( h, alpha-1.0 );
+      trace.info() << " r=" << r << std::endl;
+      IINormalEstimator ii_estimator( K, *bimage );
+      ii_estimator.setParams( r );
+      ii_estimator.init( h, surfels.begin(), surfels.end() );
+      ii_estimator.eval( surfels.begin(), surfels.end(),
+			 std::back_inserter( n_estimations ) );
+      return n_estimations;
+    }
     
+    /// Orient \a v so that it points in the same direction as \a
+    /// ref_v (scalar product is then non-negative afterwards).
+    ///
+    /// @param[in]    ref_v the vectors having the reference orientation.
+    /// @param[inout] v the vectors to reorient.
+    static void
+    orientVectors( const std::vector< RealVector > & ref_v,
+		   std::vector< RealVector > &       v )
+    {
+      std::transform( ref_v.cbegin(), ref_v.cend(), v.cbegin(), v.begin(), 
+		      [] ( RealVector rw, RealVector w )
+		      { return rw.dot( w ) >= 0.0 ? w : -w; } );
+    }
   }; // END of class EstimatorHelpers
 
 } // namespace DGtal

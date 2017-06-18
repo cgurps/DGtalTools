@@ -137,11 +137,19 @@ int main( int argc, char** argv )
   // auto h       = vm[ "gridstep" ].as<double>();
   auto surfels  = EH::computeDepthFirstSurfelRange( surface );
   auto tnormals = EH::computeTrueNormals( K, shape, surfels );
+  trace.endBlock();
+  trace.beginBlock( "Compute VCM normal estimations" );
   auto vnormals = EH::computeVCMNormals( vm, surface, surfels );
   for ( unsigned int i = 0; i < surfels.size(); ++i )
     std::cout << "- " << surfels[ i ] << " -> " << ( tnormals[ i ] - vnormals[ i ] ).norm()
 	      << std::endl;
-
+  trace.endBlock();
+  trace.beginBlock( "Compute II normal estimations" );
+  auto inormals = EH::computeIINormals( vm, K, bimage, surfels );
+  EH::orientVectors( tnormals, inormals ); // necessary for II
+  for ( unsigned int i = 0; i < surfels.size(); ++i )
+    std::cout << "- " << surfels[ i ] << " -> " << ( tnormals[ i ] - inormals[ i ] ).norm()
+	      << std::endl;
   trace.endBlock();
 
 
