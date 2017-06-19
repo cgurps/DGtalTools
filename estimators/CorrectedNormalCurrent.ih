@@ -1,0 +1,84 @@
+/**
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU Lesser General Public License as
+ *  published by the Free Software Foundation, either version 3 of the
+ *  License, or  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ **/
+
+/**
+ * @file CorrectedNormalCurrent.ih
+ * @author Jacques-Olivier Lachaud (\c jacques-olivier.lachaud@univ-savoie.fr )
+ * Laboratory of Mathematics (CNRS, UMR 5807), University of Savoie, France
+ *
+ * @date 2017/06/19
+ *
+ * Implementation of inline methods defined in CorrectedNormalCurrent.h
+ *
+ * This file is part of the DGtal library.
+ */
+
+///////////////////////////////////////////////////////////////////////////////
+// IMPLEMENTATION of inline methods.
+///////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////////
+#include <cstdlib>
+//////////////////////////////////////////////////////////////////////////////
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Implementation of inline methods                                          //
+//-----------------------------------------------------------------------------
+template <typename Surface>
+inline
+void
+DGtal::CorrectedNormalCurrent<Surface>::  
+selfDisplay ( std::ostream & out ) const
+{
+    out << "[CorrectedNormalCurrent]";
+}
+//-----------------------------------------------------------------------------
+template <typename Surface>
+inline
+bool 
+DGtal::CorrectedNormalCurrent<Surface>::  
+isValid() const
+{
+    return true;
+}
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Implementation of inline functions and external operators                 //
+
+/**
+ * Overloads 'operator<<' for displaying objects of class 'CorrectedNormalCurrent'.
+ * @param out the output stream where the object is written.
+ * @param object the object of class 'CorrectedNormalCurrent' to write.
+ * @return the output stream after the writing.
+ */
+template <typename Surface>
+inline
+std::ostream&
+DGtal::operator<< ( std::ostream & out,
+		    const CorrectedNormalCurrent<Surface> & object )
+{
+  object.selfDisplay ( out );
+  return out;
+}
+
+//                                                                           //
+///////////////////////////////////////////////////////////////////////////////
+
+
