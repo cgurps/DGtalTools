@@ -234,19 +234,20 @@ namespace DGtal
     }
     
     /// Computes the d-dimensional Hausdorff measure of a d-dimensional cell.
-    Scalar Hmeasure( Cell c ) const
+    Scalar Hmeasure( Dimension d ) const
     {
-      const KSpace & K = space();
       Scalar H = 1.0;
-      for ( Dimension k = K.udim( c ); k != 0; ++k ) H *= myH;
+      for ( Dimension k = d; k != 0; ++k ) H *= myH;
       return H;
     }
 
-    /// Computes an approximation of the Hausdorff measure of
-    /// intersection of the ball of radius \a r and center \a p with
-    /// the given cell. Cells are embedded naturally in the grid of
-    /// step h.
-    Scalar Hmeasure( Cell c, RealPoint p, Scalar r ) const
+    /// Computes an approximation of the relative intersection of the
+    /// ball of radius \a r and center \a p with the given cell. Cells
+    /// are embedded naturally in the grid of step h.
+    ///
+    /// @return the relative intersection as a scalar between 0 (no
+    /// intersection) and 1 (inclusion).
+    Scalar relativeIntersection( RealPoint p, Scalar r, Cell c ) const
     {
       const KSpace & K = space();
       auto       faces = K.uFaces( c );
@@ -262,10 +263,9 @@ namespace DGtal
 	  d_max = std::max( d_max, d );
 	  d_min = std::min( d_min, d );
 	}
-      Scalar H = Hmeasure( c );
-      if      ( d_max <= r     ) return H;
+      if      ( d_max <= r     ) return 1.0;
       else if ( r     <= d_min ) return 0.0;
-      return H * ( r - d_min ) / ( d_max - d_min );
+      return ( r - d_min ) / ( d_max - d_min );
     }
 
     /// \f$ \mu_0 \f$ Lipschitz-Killing measure. It corresponds to a
@@ -280,7 +280,7 @@ namespace DGtal
     {
       const KSpace & K = space();
       if ( K.udim( c ) != 2 ) return 0.0;
-      return Hmeasure( c ) * myTrivialNormals[ c ].dot( myCorrectedNormals[ c ] );
+      return Hmeasure( 2 ) * myTrivialNormals[ c ].dot( myCorrectedNormals[ c ] );
     }
 
     /// \f$ \mu_1 \f$ Lipschitz-Killing measure. It corresponds to a
@@ -297,16 +297,12 @@ namespace DGtal
     Scalar mu1( Arc a ) const
     {
       const KSpace & K = space();
-      Arc            b = K.opposite( a );
-      auto      face_a = K.facesAroundArc( a );
-      if ( face_a.size() != 1 ) return 0.0; // boundary face.
-      auto      face_b = K.facesAroundArc( b );
-      if ( face_b.size() != 1 ) return 0.0; // boundary face.
       Surfel    s_plus = K.tail( a );
       Surfel   s_minus = K.head( a );
       SCell      linel = K.separator( a ); // oriented 1-cell
-      SCell        pta = K.pivot( face_a[ 0 ] ); 
-      SCell        ptb = K.pivot( face_b[ 0 ] );
+      Dimension      l = *( K.uDirs( linel ) );
+      SCell        pta = K.sIndirectIncident( linel, l );
+      SCell        ptb = K.sDirectIncident( linel, l );
       RealPoint      a = sCentroid( pta );
       RealVector     e = sCentroid( ptb ) - a;
       RealPoint     s0 = sCentroid( s_plus );
@@ -317,13 +313,25 @@ namespace DGtal
       RealVector     u_p = myCorrectedNormals[ s_plus ];
       RealVector     u_m = myCorrectedNormals[ s_minus ];
       RealVector  psi_e1 = u_p.crossProduct( u_m );
-      return  e.dot( psi_e1 );
+      return  Hmeasure( 1 ) * e.dot( psi_e1 );
       // RealVector u_cross = u_p.crossProduct( u_m );
       // Scalar         psi = asin( fabs( u_cross ) );
       // RealVector      e1 = u_cross.getNormalized();
       // return  psi * e.dot( e1 );
     }
-    
+
+    Scalar mu0( RealPoint p, Scalar r, Cell c ) const
+    {
+      Scalar r = relativeIntersection( p, r, c );
+      return r != 0 ? r * mu0( c ) : 0.0;
+    }
+
+    Scalar mu1( RealPoint p, Scalar r, Cell c ) const
+    {
+      Scalar r = relativeIntersection( p, r, c );
+      return r != 0 ? r * mu1( c ) : 0.0;
+    }
+
     // ----------------------- Interface --------------------------------------
   public:
 
