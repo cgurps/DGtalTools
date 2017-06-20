@@ -45,7 +45,7 @@ void
 DGtal::CorrectedNormalCurrent<Surface>::  
 selfDisplay ( std::ostream & out ) const
 {
-    out << "[CorrectedNormalCurrent]";
+  out << "[CorrectedNormalCurrent #S=" << theSurface->size() << "]";
 }
 //-----------------------------------------------------------------------------
 template <typename Surface>
@@ -54,7 +54,7 @@ bool
 DGtal::CorrectedNormalCurrent<Surface>::  
 isValid() const
 {
-    return true;
+  return theSurface != 0;
 }
 
 

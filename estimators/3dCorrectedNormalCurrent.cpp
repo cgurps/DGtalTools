@@ -35,8 +35,8 @@
 #include "DGtal/base/Common.h"
 #include "DGtal/helpers/StdDefs.h"
 
-// Shape constructors
 #include "EstimatorHelpers.h"
+#include "CorrectedNormalCurrent.h"
 
 // // Integral Invariant includes
 // #include "DGtal/geometry/surfaces/estimation/IIGeometricFunctors.h"
@@ -87,8 +87,10 @@ namespace po = boost::program_options;
 
 int main( int argc, char** argv )
 {
-  typedef Z3i::KSpace                KSpace;
-  typedef EstimatorHelpers< KSpace > EH;
+  typedef Z3i::KSpace                     KSpace;
+  typedef EstimatorHelpers< KSpace >      EH;
+  typedef EH::Surface                     Surface;
+  typedef CorrectedNormalCurrent<Surface> Current;
   // parse command line ----------------------------------------------
   po::options_description general_opt( "Allowed options are" );
   general_opt.add_options()  ( "help,h", "display this message" );
@@ -158,6 +160,20 @@ int main( int argc, char** argv )
 	       << " Loo=" << istat.max() // Loo
 	       << std::endl;
 
+  trace.beginBlock( "Computing corrected normal current" );
+  Current C( surface, h );
+  C.setCorrectedNormals( surfels.begin(), surfels.end(), vnormals.begin() );
+  std::cout << C << std::endl;
+  const double r = 2.0*h;
+  for ( auto v : C )
+    {
+      auto m0 = C.mu0Ball( v, r );
+      auto m1 = C.mu1Ball( v, r );
+      std::cout << v
+		<< " mu0 = " << m0 << " mu1 = " << m1
+		<< " mu1/(r*mu0) = " << (m1/(r*m0)) << std::endl;
+    }
+  trace.endBlock();
 
   return 0;
 }

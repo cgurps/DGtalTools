@@ -44,6 +44,7 @@
 #include <map>
 #include "DGtal/base/Common.h"
 #include "DGtal/topology/CDigitalSurfaceContainer.h"
+#include "DGtal/graph/DistanceBreadthFirstVisitor.h"
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -77,6 +78,8 @@ namespace DGtal
     typedef typename Surface::Arc                     Arc;
     typedef typename Surface::Face                    Face;
     typedef typename Surface::ConstIterator           ConstIterator;
+    typedef typename Surface::VertexRange             VertexRange;
+    typedef typename Surface::ArcRange                ArcRange;
     typedef typename KSpace::Space                    Space;
     typedef typename Space::Point                     Point;
     typedef typename Space::Vector                    Vector;
@@ -86,7 +89,7 @@ namespace DGtal
     typedef std::map< Surfel, RealVector >            NormalVectorField;
 
     // Checks that dimension is 3.
-    BOOST_STATIC_ASSERT(( Kspace::dimension == 3 ));
+    BOOST_STATIC_ASSERT(( KSpace::dimension == 3 ));
     
     // ----------------------- Standard services ------------------------------
   public:
@@ -237,8 +240,13 @@ namespace DGtal
     Scalar Hmeasure( Dimension d ) const
     {
       Scalar H = 1.0;
-      for ( Dimension k = d; k != 0; ++k ) H *= myH;
+      for ( Dimension k = d; k != 0; --k ) H *= myH;
       return H;
+    }
+
+    Scalar sRelativeIntersection( RealPoint p, Scalar r, SCell c ) const
+    {
+      return relativeIntersection( p, r, space().unsigns( c ) );
     }
 
     /// Computes an approximation of the relative intersection of the
@@ -276,10 +284,9 @@ namespace DGtal
     ///
     /// @return the corrected area measure \f$ \mu_0 := \cos \alpha
     /// d\mathcal{H}^2 \f$.
-    Scalar mu0( Cell c ) const
+    Scalar mu0( Vertex c )
     {
-      const KSpace & K = space();
-      if ( K.udim( c ) != 2 ) return 0.0;
+      if ( space().sDim( c ) != 2 ) return 0.0;
       return Hmeasure( 2 ) * myTrivialNormals[ c ].dot( myCorrectedNormals[ c ] );
     }
 
@@ -294,13 +301,13 @@ namespace DGtal
     ///
     /// @return the corrected mean curvature measure \f$ \mu_1 := \Psi
     /// \vec{e} \cdot \vec{e}_1 d\mathcal{H}^1 \f$.
-    Scalar mu1( Arc a ) const
+    Scalar mu1( Arc arc )
     {
       const KSpace & K = space();
-      Surfel    s_plus = K.tail( a );
-      Surfel   s_minus = K.head( a );
-      SCell      linel = K.separator( a ); // oriented 1-cell
-      Dimension      l = *( K.uDirs( linel ) );
+      Surfel    s_plus = theSurface->tail( arc );
+      Surfel   s_minus = theSurface->head( arc );
+      SCell      linel = theSurface->separator( arc ); // oriented 1-cell
+      Dimension      l = *( K.sDirs( linel ) );
       SCell        pta = K.sIndirectIncident( linel, l );
       SCell        ptb = K.sDirectIncident( linel, l );
       RealPoint      a = sCentroid( pta );
@@ -308,11 +315,12 @@ namespace DGtal
       RealPoint     s0 = sCentroid( s_plus );
       RealPoint     s1 = sCentroid( s_minus );
       // s_plus must be to the left of e.
-      if ( e.crossProduct( s0 - a ) < 0.0 ) std::swap( s_plus, s_minus );
+      if ( e.crossProduct( s0 - a ).dot( myTrivialNormals[ s_plus ] ) < 0.0 )
+	   std::swap( s_plus, s_minus );
       // Computes u_+ and u_-, then their cross product.
-      RealVector     u_p = myCorrectedNormals[ s_plus ];
-      RealVector     u_m = myCorrectedNormals[ s_minus ];
-      RealVector  psi_e1 = u_p.crossProduct( u_m );
+      RealVector    u_p = myCorrectedNormals[ s_plus ];
+      RealVector    u_m = myCorrectedNormals[ s_minus ];
+      RealVector psi_e1 = u_p.crossProduct( u_m );
       return  Hmeasure( 1 ) * e.dot( psi_e1 );
       // RealVector u_cross = u_p.crossProduct( u_m );
       // Scalar         psi = asin( fabs( u_cross ) );
@@ -320,18 +328,99 @@ namespace DGtal
       // return  psi * e.dot( e1 );
     }
 
-    Scalar mu0( RealPoint p, Scalar r, Cell c ) const
+    Scalar mu0( RealPoint p, Scalar r, Vertex c )
     {
-      Scalar r = relativeIntersection( p, r, c );
-      return r != 0 ? r * mu0( c ) : 0.0;
+      Scalar ri = sRelativeIntersection( p, r, c );
+      return ri != 0.0 ? ri * mu0( c ) : 0.0;
     }
 
-    Scalar mu1( RealPoint p, Scalar r, Cell c ) const
+    Scalar mu1( RealPoint p, Scalar r, Arc a )
     {
-      Scalar r = relativeIntersection( p, r, c );
-      return r != 0 ? r * mu1( c ) : 0.0;
+      SCell linel = theSurface->separator( a ); // oriented 1-cell
+      Scalar   ri = sRelativeIntersection( p, r, linel );
+      return ri != 0.0 ? ri * mu1( a ) : 0.0;
     }
 
+    struct SquaredDistance2Point {
+      typedef Scalar Value;
+      const CorrectedNormalCurrent& current;
+      RealPoint center;
+      SquaredDistance2Point( const CorrectedNormalCurrent& aCurrent,
+			     const RealPoint&              aPoint )
+	: current( aCurrent ), center( aPoint ) {}
+      Value operator() ( Vertex v ) const
+      {
+	RealPoint  x = current.sCentroid( v );
+	RealVector w = x - center;
+	return w.dot( w );
+      }
+    };
+    
+    VertexRange getSurfelsInBall( SCell c, Scalar r ) const
+    {
+      typedef DistanceBreadthFirstVisitor
+	< Surface, SquaredDistance2Point >     DistanceVisitor;
+      typedef typename DistanceVisitor::Node   MyNode;
+      typedef typename DistanceVisitor::Scalar MySize;
+      
+      VertexRange output;
+      RealPoint   center = sCentroid( c );
+      Scalar       limit = (r+sqrt(2.0))*(r+sqrt(2.0));
+      SquaredDistance2Point d2pfct( *this, center );
+      DistanceVisitor       visitor( *theSurface, d2pfct, c );
+      while ( ! visitor.finished() )
+	{
+	  MyNode node = visitor.current();
+	  Vertex    v = node.first;
+	  Scalar    d = node.second;
+	  if ( d <= limit ) {
+	    output.push_back( v );
+	    visitor.expand();
+	  } else visitor.ignore();
+	}
+      return output;
+    }
+
+    ArcRange getArcsInBall( SCell c, Scalar r ) const
+    {
+      const KSpace&    K = space();
+      VertexRange scells = getSurfelsInBall( c, r );
+      std::set<Arc> arcs;
+      for ( auto s : scells )
+	{
+	  auto l_arcs = theSurface->outArcs( s );
+	  for ( auto a : l_arcs )
+	    {
+	      auto b = theSurface->opposite( a );
+	      if ( arcs.find( a ) == arcs.end() && arcs.find( b ) == arcs.end() )
+		arcs.insert( a );
+	    }
+	}
+      return ArcRange( arcs.begin(), arcs.end() );
+    }
+
+    Scalar mu0Ball( SCell c, Scalar r )
+    {
+      VertexRange vtcs = getSurfelsInBall( c, r );
+      Scalar        m0 = 0.0;
+      RealPoint      x = sCentroid( c );
+      for ( auto v : vtcs ) {
+	m0      += mu0( x, r, v ); 
+      }
+      return m0;
+    }
+
+    Scalar mu1Ball( SCell c, Scalar r )
+    {
+      ArcRange    arcs = getArcsInBall( c, r );
+      Scalar        m1 = 0.0;
+      RealPoint      x = sCentroid( c );
+      for ( auto a : arcs ) {
+	m1      += mu1( x, r, a ); 
+      }
+      return m1;
+    }
+    
     // ----------------------- Interface --------------------------------------
   public:
 
