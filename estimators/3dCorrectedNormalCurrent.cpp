@@ -93,12 +93,17 @@ int main( int argc, char** argv )
   typedef CorrectedNormalCurrent<Surface> Current;
   // parse command line ----------------------------------------------
   po::options_description general_opt( "Allowed options are" );
-  general_opt.add_options()  ( "help,h", "display this message" );
+  general_opt.add_options()
+    ( "help,h", "display this message" )
+    ( "m-coef", po::value<double>()->default_value( 1.0 ), "the coefficient k that defines the radius of the ball used in measures, that is r := k h^b" )
+    ( "m-pow", po::value<double>()->default_value( 1.0 ), "the coefficient b that defines the radius of the ball used in measures, that is r := k h^b" )
+    ;
   EH::optionsImplicitShape   ( general_opt );
   EH::optionsDigitizedShape  ( general_opt );
   EH::optionsNoisyImage      ( general_opt );
   EH::optionsNormalEstimators( general_opt );
 
+  
   po::variables_map vm;
   bool parseOK = EH::args2vm( general_opt, argc, argv, vm );
   bool neededArgsGiven=true;
@@ -163,16 +168,27 @@ int main( int argc, char** argv )
   trace.beginBlock( "Computing corrected normal current" );
   Current C( surface, h );
   C.setCorrectedNormals( surfels.begin(), surfels.end(), vnormals.begin() );
-  std::cout << C << std::endl;
-  const double r = 2.0*h;
+  const double mcoef = vm["m-coef"].as<double>();
+  const double mpow  = vm["m-pow"].as<double>();
+  const double r     = mcoef*pow( h, mpow );
+  trace.info() << C << " m-ball-r = " << r << std::endl;
+  double            area = 0.0;
+  Statistic<double> meanCurv;
   for ( auto v : C )
     {
+      area   += C.mu0( v );
       auto m0 = C.mu0Ball( v, r );
       auto m1 = C.mu1Ball( v, r );
-      std::cout << v
-		<< " mu0 = " << m0 << " mu1 = " << m1
-		<< " mu1/(r*mu0) = " << (m1/(r*m0)) << std::endl;
+      meanCurv.addValue( (m1/(2.0*h*m0)) );
+      // std::cout << v
+      // 		<< " mu0 = " << m0 << " mu1 = " << m1
+      // 		<< " mu1/(r*mu0) = " << (m1/(2.0*h*m0)) << std::endl;
     }
+  meanCurv.terminate();
+  trace.info() << "- area = " << area << std::endl;
+  trace.info() << "- mean curv: avg = " << meanCurv.mean() << std::endl;
+  trace.info() << "- mean curv: min = " << meanCurv.min() << std::endl;
+  trace.info() << "- mean curv: max = " << meanCurv.max() << std::endl;
   trace.endBlock();
 
   return 0;
