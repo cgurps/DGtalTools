@@ -383,22 +383,29 @@ namespace DGtal
       const KSpace & K = space();
       Surfel    s_plus = theSurface->tail( arc );
       Surfel   s_minus = theSurface->head( arc );
-      SCell      linel = theSurface->separator( arc ); // oriented 1-cell
-      Dimension      l = *( K.sDirs( linel ) );
-      SCell        pta = K.sIndirectIncident( linel, l );
-      SCell        ptb = K.sDirectIncident( linel, l );
-      RealPoint      a = sCentroid( pta );
-      RealVector     e = sCentroid( ptb ) - a;
+      Cell       linel = K.unsigns( theSurface->separator( arc ) ); // oriented 1-cell
+      Dimension      l = *( K.uDirs( linel ) );
+      Cell         pta = K.uIncident( linel, l, true );
+      Cell         ptb = K.uIncident( linel, l, false );
+      auto       faces = theSurface->facesAroundArc( arc );
+      if ( faces.size() != 1 )
+	faces = theSurface->facesAroundArc( theSurface->opposite( arc ) );	
+      Cell       pivot = K.unsigns( theSurface->pivot( faces[ 0 ] ) );
+      if ( pivot != pta ) std::swap( pta, ptb );
+      RealPoint      a = uCentroid( pta );
+      RealVector     e = a - uCentroid( ptb );//  - a;
       RealPoint     s0 = sCentroid( s_plus );
       RealPoint     s1 = sCentroid( s_minus );
       // s_plus must be to the left of e.
-      if ( e.crossProduct( s0 - a ).dot( myTrivialNormals[ s_plus ] ) < 0.0 )
-	   std::swap( s_plus, s_minus );
+      // if ( e.crossProduct( s0 - a ).dot( myTrivialNormals[ s_plus ] ) < 0.0 )
+      // 	   std::swap( s_plus, s_minus );
       // Computes u_+ and u_-, then their cross product.
       RealVector    u_p = myCorrectedNormals[ s_plus ];
       RealVector    u_m = myCorrectedNormals[ s_minus ];
       RealVector psi_e1 = u_p.crossProduct( u_m );
-      return  Hmeasure( 1 ) * e.dot( psi_e1 );
+      Scalar        ne1 = psi_e1.norm();
+      Scalar       npsi = (ne1 == 0.0) ? 0.0 : ( asin( ne1 ) / ne1 );
+      return  Hmeasure( 1 ) * npsi * e.dot( psi_e1 );
       // RealVector u_cross = u_p.crossProduct( u_m );
       // Scalar         psi = asin( fabs( u_cross ) );
       // RealVector      e1 = u_cross.getNormalized();
