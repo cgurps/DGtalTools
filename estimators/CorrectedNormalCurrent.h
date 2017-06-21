@@ -87,6 +87,9 @@ namespace DGtal
     typedef typename Space::RealVector                RealVector;
     typedef typename RealVector::Component            Scalar;
     typedef std::map< Surfel, RealVector >            NormalVectorField;
+    typedef std::map< Cell,   RealPoint >             CentroidMap;
+    typedef std::map< Vertex, Scalar >                Measure0Map;
+    typedef std::map< Arc,    Scalar >                Measure1Map;
 
     // Checks that dimension is 3.
     BOOST_STATIC_ASSERT(( KSpace::dimension == 3 ));
@@ -117,6 +120,7 @@ namespace DGtal
       setParams( h );
       computeTrivialNormals();
       setCorrectedNormals( myTrivialNormals );
+      computeCellCentroids();
     }
   
     /**
@@ -148,6 +152,7 @@ namespace DGtal
       myTrivialNormals.clear();
       computeTrivialNormals();
       setCorrectedNormals( myTrivialNormals );
+      computeCellCentroids();
     }
     
     /// @return the Khalimsky space associated with this current.
@@ -197,6 +202,36 @@ namespace DGtal
 	}
     }
 
+    /// Computes the trivial normals of the attached surface.
+    void computeCellCentroids()
+    {
+      const KSpace&   K = space();
+      for ( auto s : *this )
+	{
+	  Cell  cell2 = K.unsigns( s );
+	  Dimension k = K.uOrthDir( cell2 );
+	  Dimension i = (k+1)%3;
+	  Dimension j = (k+2)%3;
+	  Cell cell1a = K.uIncident( cell2, i, false );
+	  Cell cell1b = K.uIncident( cell2, i, true );
+	  Cell cell1c = K.uIncident( cell2, j, false );
+	  Cell cell1d = K.uIncident( cell2, j, true );
+	  Cell cell0a = K.uIncident( cell1a, j, false );
+	  Cell cell0b = K.uIncident( cell1a, j, true );
+	  Cell cell0c = K.uIncident( cell1b, j, false );
+	  Cell cell0d = K.uIncident( cell1b, j, true );
+	  myCellCentroids[ cell2 ]  = computeCentroid( cell2 );
+	  myCellCentroids[ cell1a ] = computeCentroid( cell1a );
+	  myCellCentroids[ cell1b ] = computeCentroid( cell1b );
+	  myCellCentroids[ cell1c ] = computeCentroid( cell1c );
+	  myCellCentroids[ cell1d ] = computeCentroid( cell1d );
+	  myCellCentroids[ cell0a ] = computeCentroid( cell0a );
+	  myCellCentroids[ cell0b ] = computeCentroid( cell0b );
+	  myCellCentroids[ cell0c ] = computeCentroid( cell0c );
+	  myCellCentroids[ cell0d ] = computeCentroid( cell0d );
+	}
+    }
+    
     /// Sets the corrected normal vector field of the current.
     /// @param nvf a map Surfel -> RealVector
     void setCorrectedNormals( const NormalVectorField& nvf )
@@ -218,23 +253,28 @@ namespace DGtal
   public:
     /// @param[in] c any cell.
     /// @return the centroid of the cell c in real space;
-    RealPoint uCentroid( Cell c ) const
+    RealPoint uCentroid( Cell c )
+    {
+      return myCellCentroids[ c ];
+    }
+
+    /// @param[in] c any signed cell.
+    /// @return the centroid of the signed cell c in real space;
+    RealPoint sCentroid( SCell c )
+    {
+      return myCellCentroids[ space().unsigns( c ) ];
+    }
+    
+    /// @param[in] c any cell.
+    /// @return the centroid of the cell c in real space;
+    RealPoint computeCentroid( Cell c ) const
     {
       Point    kp = space().uKCoords( c );
-      Point    lo = Point( kp[ 0 ] / 2, kp[ 1 ] / 2, kp[ 2 ] / 2 );
+      Point    lo = Point( (kp[ 0 ]-0) / 2, (kp[ 1 ]-0) / 2, (kp[ 2 ]-0) / 2 );
       Point    hi = Point( (kp[ 0 ]+1) / 2, (kp[ 1 ]+1) / 2, (kp[ 2 ]+1) / 2 );
       return   0.5 * ( myEmbedder( lo ) + myEmbedder( hi ) );
     }
     
-    /// @param[in] c any signed cell.
-    /// @return the centroid of the signed cell c in real space;
-    RealPoint sCentroid( SCell c ) const
-    {
-      Point    kp = space().sKCoords( c );
-      Point    lo = Point( kp[ 0 ] / 2, kp[ 1 ] / 2, kp[ 2 ] / 2 );
-      Point    hi = Point( (kp[ 0 ]+1) / 2, (kp[ 1 ]+1) / 2, (kp[ 2 ]+1) / 2 );
-      return   0.5 * ( myEmbedder( lo ) + myEmbedder( hi ) );
-    }
     
     /// Computes the d-dimensional Hausdorff measure of a d-dimensional cell.
     Scalar Hmeasure( Dimension d ) const
@@ -244,7 +284,7 @@ namespace DGtal
       return H;
     }
 
-    Scalar sRelativeIntersection( RealPoint p, Scalar r, SCell c ) const
+    Scalar sRelativeIntersection( RealPoint p, Scalar r, SCell c )
     {
       return relativeIntersection( p, r, space().unsigns( c ) );
     }
@@ -255,7 +295,7 @@ namespace DGtal
     ///
     /// @return the relative intersection as a scalar between 0 (no
     /// intersection) and 1 (inclusion).
-    Scalar relativeIntersection( RealPoint p, Scalar r, Cell c ) const
+    Scalar relativeIntersection( RealPoint p, Scalar r, Cell c )
     {
       const KSpace & K = space();
       auto       faces = K.uFaces( c );
@@ -286,6 +326,22 @@ namespace DGtal
     /// d\mathcal{H}^2 \f$.
     Scalar mu0( Vertex c )
     {
+      typename Measure0Map::iterator it = myMu0.find( c );
+      if ( it != myMu0.end() ) return it->second;
+      it->second = computeMu0( c );
+      return it->second;
+    }
+    
+    /// \f$ \mu_0 \f$ Lipschitz-Killing measure. It corresponds to a
+    /// corrected area measure, and is non null only on 2-cells (or Vertex).
+    ///
+    /// @param[in] c any 2-dimensional cell (or a Vertex in 3D digital
+    /// surfaces).
+    ///
+    /// @return the corrected area measure \f$ \mu_0 := \cos \alpha
+    /// d\mathcal{H}^2 \f$.
+    Scalar computeMu0( Vertex c )
+    {
       if ( space().sDim( c ) != 2 ) return 0.0;
       return Hmeasure( 2 ) * myTrivialNormals[ c ].dot( myCorrectedNormals[ c ] );
     }
@@ -302,6 +358,27 @@ namespace DGtal
     /// @return the corrected mean curvature measure \f$ \mu_1 := \Psi
     /// \vec{e} \cdot \vec{e}_1 d\mathcal{H}^1 \f$.
     Scalar mu1( Arc arc )
+    {
+      typename Measure1Map::iterator it = myMu1.find( arc );
+      if ( it != myMu1.end() ) return it->second;
+      it = myMu1.find( theSurface->opposite( arc ) );
+      if ( it != myMu1.end() ) return it->second;
+      it->second = computeMu1( arc );
+      return it->second;
+    }
+    
+    /// \f$ \mu_1 \f$ Lipschitz-Killing measure. It corresponds to a
+    /// measure of mean curvature, since normal vectors may turn
+    /// around an edge, and is non null only on 1-cells (or Arc). The
+    /// measure is oriented, but gives the same result of an arc and
+    /// its opposite.
+    ///
+    /// @param[in] a any arc (ie a 1-cell in-between two 2-cells on 3D digital
+    /// surfaces).
+    ///
+    /// @return the corrected mean curvature measure \f$ \mu_1 := \Psi
+    /// \vec{e} \cdot \vec{e}_1 d\mathcal{H}^1 \f$.
+    Scalar computeMu1( Arc arc )
     {
       const KSpace & K = space();
       Surfel    s_plus = theSurface->tail( arc );
@@ -343,9 +420,9 @@ namespace DGtal
 
     struct SquaredDistance2Point {
       typedef Scalar Value;
-      const CorrectedNormalCurrent& current;
+      CorrectedNormalCurrent& current;
       RealPoint center;
-      SquaredDistance2Point( const CorrectedNormalCurrent& aCurrent,
+      SquaredDistance2Point( CorrectedNormalCurrent& aCurrent,
 			     const RealPoint&              aPoint )
 	: current( aCurrent ), center( aPoint ) {}
       Value operator() ( Vertex v ) const
@@ -356,7 +433,7 @@ namespace DGtal
       }
     };
     
-    VertexRange getSurfelsInBall( SCell c, Scalar r ) const
+    VertexRange getSurfelsInBall( SCell c, Scalar r )
     {
       typedef DistanceBreadthFirstVisitor
 	< Surface, SquaredDistance2Point >     DistanceVisitor;
@@ -365,7 +442,7 @@ namespace DGtal
       
       VertexRange output;
       RealPoint   center = sCentroid( c );
-      Scalar       limit = (r+sqrt(2.0))*(r+sqrt(2.0));
+      Scalar       limit = r*r;
       SquaredDistance2Point d2pfct( *this, center );
       DistanceVisitor       visitor( *theSurface, d2pfct, c );
       while ( ! visitor.finished() )
@@ -373,15 +450,14 @@ namespace DGtal
 	  MyNode node = visitor.current();
 	  Vertex    v = node.first;
 	  Scalar    d = node.second;
-	  if ( d <= limit ) {
-	    output.push_back( v );
-	    visitor.expand();
-	  } else visitor.ignore();
+	  output.push_back( v );
+	  if ( d <= limit ) visitor.expand();
+	  else              visitor.ignore();
 	}
       return output;
     }
 
-    ArcRange getArcsInBall( SCell c, Scalar r ) const
+    ArcRange getArcsInBall( SCell c, Scalar r )
     {
       const KSpace&    K = space();
       VertexRange scells = getSurfelsInBall( c, r );
@@ -449,6 +525,12 @@ namespace DGtal
     NormalVectorField        myTrivialNormals;
     /// The corrected normal vector field.
     NormalVectorField        myCorrectedNormals;
+    /// The map cell -> centroid (to limit computations).
+    CentroidMap              myCellCentroids;
+    /// The map Vertex -> mu0
+    Measure0Map              myMu0;
+    /// The map Arc -> mu1
+    Measure1Map              myMu1;
     
     // ------------------------- Hidden services ------------------------------
   protected:

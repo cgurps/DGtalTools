@@ -72,6 +72,11 @@
 #include "DGtal/geometry/surfaces/estimation/VCMDigitalSurfaceLocalEstimator.h"
 #include "DGtal/geometry/surfaces/estimation/IIGeometricFunctors.h"
 #include "DGtal/geometry/surfaces/estimation/IntegralInvariantCovarianceEstimator.h"
+#ifdef WITH_VISU3D_QGLVIEWER
+#include "DGtal/io/colormaps/GradientColorMap.h"
+#include "DGtal/io/viewers/Viewer3D.h"
+#include "DGtal/io/Display3DFactory.h"
+#endif
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -103,7 +108,11 @@ namespace DGtal
     typedef functors::ShapeGeometricFunctors::ShapeNormalVectorFunctor<ImplicitShape> NormalFunctor;
     typedef TrueDigitalSurfaceLocalEstimator<KSpace, ImplicitShape, NormalFunctor> TrueNormalEstimator;
     typedef DGtal::Statistic<Scalar>                 AngleDevStatistic;
-    
+#ifdef WITH_VISU3D_QGLVIEWER
+    typedef GradientColorMap<Scalar>                 ColorMap;
+    typedef Viewer3D<Space,KSpace>                   Viewer;
+    typedef Display3DFactory<Space,KSpace>           DisplayFactory;
+#endif    
     // ------------------- parsing related functions -----------------------------
     
     /// Parses command line given as \a argc, \a argv according to \a
@@ -220,6 +229,15 @@ namespace DGtal
 	("embedding,E", po::value<int>()->default_value( 0 ), "the surfel -> point embedding for VCM estimator: 0: Pointels, 1: InnerSpel, 2: OuterSpel." );
     }
 
+#ifdef WITH_VISU3D_QGLVIEWER
+    /// Add options for implicit shape digitization.
+    static void optionsColorMap( po::options_description& desc )
+    {
+      desc.add_options()
+	("colormap", po::value<std::string>()->default_value( "Hue" ), "the chosen colormap for displaying values." );
+    }
+#endif
+    
     // ------------------- Shapes related functions --------------------------------
     
     /// Builds a 3D implicit shape from argument "-polynomial".
@@ -234,6 +252,21 @@ namespace DGtal
     {
       typedef MPolynomialReader< Space::dimension, Scalar> Polynomial3Reader;
       std::string poly_str = vm[ "polynomial" ].as<std::string>();
+      // Recognizes some strings:
+      std::vector< std::pair< std::string, std::string > >
+	Ps = { { "sphere1", "1-x^2-y^2-z^2" },
+	       { "sphere9", "81-x^2-y^2-z^2" },
+	       { "ellipse", "90-3*x^2-2*y^2-z^2" },
+	       { "torus",   "-1*(x^2+y^2+z^2+6*6-2*2)^2+4*6*6*(x^2+y^2)" },
+	       { "rcube",   "6561-x^4-y^4-z^4" },
+	       { "goursat", "8-0.03*x^4-0.03*y^4-0.03*z^4+2*x^2+2*y^2+2*z^2" },
+	       { "distel",  "10000-(x^2+y^2+z^2+1000*(x^2+y^2)*(x^2+z^2)*(y^2+z^2))"},
+	       { "leopold", "100-(x^2*y^2*z^2+4*x^2+4*y^2+3*z^2)" },
+	       { "diabolo", "x^2-(y^2+z^2)^2" },
+	       { "heart",   "-1*(x^2+2.25*y^2+z^2-1)^3+x^2*z^3+0.1125*y^2*z^3" },
+	       { "crixxi",  "-0.9*(y^2+z^2-1)^2-(x^2+y^2-1)^3" } };
+      for ( auto p : Ps )
+	if ( poly_str == p.first ) poly_str = p.second;
       PolynomialN poly;
       Polynomial3Reader reader;
       std::string::const_iterator iter
@@ -411,9 +444,9 @@ namespace DGtal
     /// @return the vector containing the true normals, in the same
     /// order as \a surfels.
     static std::vector< RealVector >
-    computeTrueNormals( const KSpace&             K,
-			CountedPtr<ImplicitShape> shape,
-			std::vector< Surfel >     surfels )
+    computeTrueNormals( const KSpace&                K,
+			CountedPtr<ImplicitShape>    shape,
+			const std::vector< Surfel >& surfels )
     {
       std::vector< RealVector > n_true_estimations;
       TrueNormalEstimator       true_estimator;
@@ -425,7 +458,32 @@ namespace DGtal
 			   std::back_inserter( n_true_estimations ) );
       return n_true_estimations;
     }
-
+    
+    /// Given a digital space \a K and a sequence of \a surfels,
+    /// returns the trivial normals at the specified surfels, in the
+    /// same order.
+    ///
+    /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
+    /// @param[in] surfels the sequence of surfels at which we compute the normals
+    ///
+    /// @return the vector containing the estimated normals, in the
+    /// same order as \a surfels.
+    static std::vector< RealVector >
+    computeTrivialNormals( const KSpace&                K,
+			   const std::vector< Surfel >& surfels )
+    {
+      std::vector< RealVector > result;
+      for ( auto s : surfels )
+	{
+	  Dimension  k = K.sOrthDir( s );
+	  bool  direct = K.sDirect( s, k );
+	  RealVector t = RealVector::zero;
+	  t[ k ]       = direct ? -1.0 : 1.0;
+	  result.push_back( t );
+	}
+      return result;
+    }
+    
     /// Given a digital surface \a surface, a sequence of \a surfels,
     /// and some parameters \a vm, returns the normal Voronoi
     /// Covariance Measure (VCM) estimation at the specified surfels,
@@ -433,16 +491,16 @@ namespace DGtal
     ///
     /// @param[in] vm the options sets in the variable map (arguments
     /// given to the program). Recognized parameters are given in \ref
-    /// optionsNoisyImage.
+    /// optionsNormalEstimators.
     /// @param[in] surface the digital surface
     /// @param[in] surfels the sequence of surfels at which we compute the normals
     ///
     /// @return the vector containing the estimated normals, in the
     /// same order as \a surfels.
     static std::vector< RealVector >
-    computeVCMNormals( const po::variables_map& vm,
-		       CountedPtr<Surface>      surface,
-		       std::vector< Surfel >    surfels )
+    computeVCMNormals( const po::variables_map&     vm,
+		       CountedPtr<Surface>          surface,
+		       const std::vector< Surfel >& surfels )
     {
       typedef ExactPredicateLpSeparableMetric<Space,2> Metric;
       std::vector< RealVector > n_estimations;
@@ -498,8 +556,9 @@ namespace DGtal
     ///
     /// @param[in] vm the options sets in the variable map (arguments
     /// given to the program). Recognized parameters are given in \ref
-    /// optionsNoisyImage.
+    /// optionsNormalEstimators.
     /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
+    /// @param[in] bimage the characteristic function of the shape as a binary image (inside is true, outside is false). 
     /// @param[in] surfels the sequence of surfels at which we compute the normals
     ///
     /// @return the vector containing the estimated normals, in the
@@ -508,10 +567,10 @@ namespace DGtal
     /// @note It is better to have surfels in a specific order, as
     /// given for instance by computeDepthFirstSurfelRange.
     static std::vector< RealVector >
-    computeIINormals( const po::variables_map& vm,
-		      const KSpace&            K,
-		      CountedPtr<BinaryImage>  bimage,
-		      std::vector< Surfel >    surfels )
+    computeIINormals( const po::variables_map&     vm,
+		      const KSpace&                K,
+		      CountedPtr<BinaryImage>      bimage,
+		      const std::vector< Surfel >& surfels )
     {
       typedef functors::IINormalDirectionFunctor<Space> IINormalFunctor;
       typedef IntegralInvariantCovarianceEstimator
@@ -527,9 +586,69 @@ namespace DGtal
       ii_estimator.init( h, surfels.begin(), surfels.end() );
       ii_estimator.eval( surfels.begin(), surfels.end(),
 			 std::back_inserter( n_estimations ) );
+      const std::vector< RealVector > n_trivial = computeTrivialNormals( K, surfels );
+      orientVectors( n_trivial, n_estimations );
       return n_estimations;
     }
-    
+
+    /// Given a digital surface \a surface, its corresponding
+    /// characteristic function as a binary image \a bimage, a
+    /// sequence of \a surfels, and some parameters \a vm, returns
+    /// some normal estimation at the specified surfels, in the same
+    /// order. The estimator is chosen according to parameter
+    /// "-estimator" and can be any of "True", "Trivial", "II" or "VCM".
+    ///
+    /// @param[in] vm the options sets in the variable map (arguments
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsNormalEstimators.
+    /// @param[in] shape the implicit shape (if 0, "True" is not possible).
+    /// @param[in] surface the digital surface (if 0, "VCM" is not possible).
+    /// @param[in] bimage the characteristic function of the shape as a binary image (inside is true, outside is false) (if 0, "II" is not possible).
+    /// @param[in] surfels the sequence of surfels at which we compute the normals
+    ///
+    /// @return the vector containing the estimated normals, in the
+    /// same order as \a surfels.
+    static std::vector< RealVector >
+    computeNormals( const po::variables_map&     vm,
+		    const KSpace&                K,
+		    CountedPtr<ImplicitShape>    shape,
+		    CountedPtr<Surface>          surface,
+		    CountedPtr<BinaryImage>      bimage,
+		    const std::vector< Surfel >& surfels )
+    {
+      std::string estimator = vm[ "estimator" ].as<std::string>();
+      if ( estimator == "True" )
+	{
+	  if ( shape != 0 ) return computeTrueNormals( K, shape, surfels );
+	  trace.error() << "[EstimatorHelpers::computeNormals]"
+			<< " Error. Cannot estimate true normals if implicit shape is not given."
+			<< std::endl;
+	}
+      else if ( estimator == "Trivial" )
+	return computeTrivialNormals( K, surfels );
+      else if ( estimator == "VCM" )
+	{
+	  if ( surface != 0 ) return computeVCMNormals( vm, surface, surfels );
+	  trace.error() << "[EstimatorHelpers::computeNormals]"
+			<< " Error. Cannot estimate VCM normals if digital surface is not given."
+			<< std::endl;
+	}
+      else if ( estimator == "II" )
+	{
+	  if ( bimage != 0 ) return computeIINormals( vm, K, bimage, surfels );
+	  trace.error() << "[EstimatorHelpers::computeNormals]"
+			<< " Error. Cannot estimate II normals if characteristic function is not given."
+			<< std::endl;
+	}
+      else
+	{
+	  trace.error() << "[EstimatorHelpers::computeNormals]"
+			<< " Error. Unknown \"" << estimator << "\". Should be one of True|VCM|II|Trivial."
+			<< std::endl;
+	}
+      return std::vector< RealVector >();
+    }
+      
     /// Orient \a v so that it points in the same direction as \a
     /// ref_v (scalar product is then non-negative afterwards).
     ///
@@ -565,6 +684,47 @@ namespace DGtal
       return stat;
     }
 
+
+#ifdef WITH_VISU3D_QGLVIEWER
+    static ColorMap
+    makeColorMap( const po::variables_map& vm,
+			   Scalar                   min,
+			   Scalar                   max )
+    {
+      std::string cmap = vm[ "colormap" ].as<std::string>();
+      if      ( cmap == "Cool" )   return ColorMap( min, max, CMAP_COOL );
+      else if ( cmap == "Copper" ) return ColorMap( min, max, CMAP_COPPER );
+      else if ( cmap == "Hot" )    return ColorMap( min, max, CMAP_HOT );
+      else if ( cmap == "Jet" )    return ColorMap( min, max, CMAP_JET );
+      else if ( cmap == "Spring" ) return ColorMap( min, max, CMAP_SPRING );
+      else if ( cmap == "Summer" ) return ColorMap( min, max, CMAP_SUMMER );
+      else if ( cmap == "Autumn" ) return ColorMap( min, max, CMAP_AUTUMN );
+      else if ( cmap == "Winter" ) return ColorMap( min, max, CMAP_WINTER );
+      return ColorMap( min, max, CMAP_COOL );
+    }
+
+    static void
+    viewSurfelValues( Viewer& viewer,
+		      const po::variables_map&     vm,
+		      const std::vector< Surfel >& surfels,
+		      const std::vector< Scalar >& values )
+    {
+      Scalar      m = * std::min_element( values.begin(), values.end() );
+      Scalar      M = * std::max_element( values.begin(), values.end() );
+      ColorMap cmap = makeColorMap( vm, m, M );
+      auto      itV = values.begin(); 
+      Surfel  dummy;
+      viewer << SetMode3D( dummy.className(), "Basic" );
+      for ( auto it = surfels.begin(), itE = surfels.end(); it != itE; ++it )
+	{
+	  Scalar v = *itV++;
+	  v = std::min( M, std::max( m, v ) );
+          viewer.setFillColor( cmap( v ) );
+	  viewer << *it;
+	}
+    }
+#endif
+    
   }; // END of class EstimatorHelpers
 
 } // namespace DGtal

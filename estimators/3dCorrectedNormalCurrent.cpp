@@ -87,6 +87,7 @@ namespace po = boost::program_options;
 
 int main( int argc, char** argv )
 {
+  typedef Z3i::Space                      Space;
   typedef Z3i::KSpace                     KSpace;
   typedef EstimatorHelpers< KSpace >      EH;
   typedef EH::Surface                     Surface;
@@ -102,7 +103,9 @@ int main( int argc, char** argv )
   EH::optionsDigitizedShape  ( general_opt );
   EH::optionsNoisyImage      ( general_opt );
   EH::optionsNormalEstimators( general_opt );
-
+#ifdef WITH_VISU3D_QGLVIEWER
+  EH::optionsColorMap        ( general_opt );
+#endif
   
   po::variables_map vm;
   bool parseOK = EH::args2vm( general_opt, argc, argv, vm );
@@ -140,46 +143,57 @@ int main( int argc, char** argv )
   trace.info() << "- surface component has " << surface->size()<< " surfels." << std::endl;
   trace.endBlock();
 
-  trace.beginBlock( "Compute true normal estimations" );
+  // trace.beginBlock( "Compute true normal estimations" );
+  // auto h        = vm[ "gridstep" ].as<double>();
+  // auto surfels  = EH::computeDepthFirstSurfelRange( surface );
+  // auto tnormals = EH::computeTrueNormals( K, shape, surfels );
+  // trace.endBlock();
+  // trace.beginBlock( "Compute VCM normal estimations" );
+  // auto vnormals = EH::computeVCMNormals( vm, surface, surfels );
+  // auto vstat    = EH::measureAngleDeviation( tnormals, vnormals );
+  // trace.endBlock();
+  // trace.beginBlock( "Compute II normal estimations" );
+  // auto inormals = EH::computeIINormals( vm, K, bimage, surfels );
+  // EH::orientVectors( tnormals, inormals ); // necessary for II
+  // auto istat    = EH::measureAngleDeviation( tnormals, inormals );
+  // trace.endBlock();
+  // trace.info() << "- VCM h=" << h << " L1=" << vstat.mean() // L1
+  // 	       << " L2=" << sqrt( vstat.unbiasedVariance()
+  // 				  + vstat.mean()*vstat.mean() ) // L2
+  // 	       << " Loo=" << vstat.max() // Loo
+  // 	       << std::endl;
+  // trace.info() << "- II  h=" << h << " L1=" << istat.mean() // L1
+  // 	       << " L2=" << sqrt( istat.unbiasedVariance()
+  // 				  + istat.mean()*istat.mean() ) // L2
+  // 	       << " Loo=" << istat.max() // Loo
+  // 	       << std::endl;
+
+  trace.beginBlock( "Compute normal estimations" );
   auto h        = vm[ "gridstep" ].as<double>();
   auto surfels  = EH::computeDepthFirstSurfelRange( surface );
-  auto tnormals = EH::computeTrueNormals( K, shape, surfels );
+  auto normals  = EH::computeNormals( vm, K, shape, surface, bimage, surfels );
   trace.endBlock();
-  trace.beginBlock( "Compute VCM normal estimations" );
-  auto vnormals = EH::computeVCMNormals( vm, surface, surfels );
-  auto vstat    = EH::measureAngleDeviation( tnormals, vnormals );
-  trace.endBlock();
-  trace.beginBlock( "Compute II normal estimations" );
-  auto inormals = EH::computeIINormals( vm, K, bimage, surfels );
-  EH::orientVectors( tnormals, inormals ); // necessary for II
-  auto istat    = EH::measureAngleDeviation( tnormals, inormals );
-  trace.endBlock();
-  trace.info() << "- VCM h=" << h << " L1=" << vstat.mean() // L1
-	       << " L2=" << sqrt( vstat.unbiasedVariance()
-				  + vstat.mean()*vstat.mean() ) // L2
-	       << " Loo=" << vstat.max() // Loo
-	       << std::endl;
-  trace.info() << "- II  h=" << h << " L1=" << istat.mean() // L1
-	       << " L2=" << sqrt( istat.unbiasedVariance()
-				  + istat.mean()*istat.mean() ) // L2
-	       << " Loo=" << istat.max() // Loo
-	       << std::endl;
 
   trace.beginBlock( "Computing corrected normal current" );
   Current C( surface, h );
-  C.setCorrectedNormals( surfels.begin(), surfels.end(), vnormals.begin() );
+  C.setCorrectedNormals( surfels.begin(), surfels.end(), normals.begin() );
   const double mcoef = vm["m-coef"].as<double>();
   const double mpow  = vm["m-pow"].as<double>();
   const double r     = mcoef*pow( h, mpow );
   trace.info() << C << " m-ball-r = " << r << std::endl;
-  double            area = 0.0;
-  Statistic<double> meanCurv;
-  for ( auto v : C )
+  double              area = 0.0;
+  Statistic<double>   meanCurv;
+  std::vector<double> normalize_m1;
+  unsigned int        i = 0;
+  unsigned int        j = surfels.size();
+  for ( auto v : surfels )
     {
+      trace.progressBar( i++, j );
       area   += C.mu0( v );
       auto m0 = C.mu0Ball( v, r );
       auto m1 = C.mu1Ball( v, r );
       meanCurv.addValue( (m1/(2.0*h*m0)) );
+      normalize_m1.push_back( (m1/(2.0*h*m0)) );
       // std::cout << v
       // 		<< " mu0 = " << m0 << " mu1 = " << m1
       // 		<< " mu1/(r*mu0) = " << (m1/(2.0*h*m0)) << std::endl;
@@ -191,6 +205,20 @@ int main( int argc, char** argv )
   trace.info() << "- mean curv: max = " << meanCurv.max() << std::endl;
   trace.endBlock();
 
+#ifdef WITH_VISU3D_QGLVIEWER
+  typedef Viewer3D<Space,KSpace> MyViewever3D;
+  typedef Display3DFactory<Space,KSpace> MyDisplay3DFactory;
+
+  QApplication application( argc, argv );
+  trace.beginBlock( "View measure" );
+  MyViewever3D viewer( K );
+  viewer.show();
+  EH::viewSurfelValues( viewer, vm, surfels, normalize_m1 );
+  viewer << MyViewever3D::updateDisplay;
+  application.exec();
+  trace.endBlock();
+  
+#endif
   return 0;
 }
 
