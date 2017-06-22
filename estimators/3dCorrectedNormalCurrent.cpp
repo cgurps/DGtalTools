@@ -97,14 +97,16 @@ int main( int argc, char** argv )
   general_opt.add_options()
     ( "help,h", "display this message" )
     ( "m-coef", po::value<double>()->default_value( 1.0 ), "the coefficient k that defines the radius of the ball used in measures, that is r := k h^b" )
-    ( "m-pow", po::value<double>()->default_value( 1.0 ), "the coefficient b that defines the radius of the ball used in measures, that is r := k h^b" )
-    ;
+    ( "m-pow", po::value<double>()->default_value( 1.0 ), "the coefficient b that defines the radius of the ball used in measures, that is r := k h^b" );
+  
   EH::optionsImplicitShape   ( general_opt );
   EH::optionsDigitizedShape  ( general_opt );
   EH::optionsNoisyImage      ( general_opt );
   EH::optionsNormalEstimators( general_opt );
 #ifdef WITH_VISU3D_QGLVIEWER
   EH::optionsColorMap        ( general_opt );
+  general_opt.add_options()
+    ( "view,V", po::value<std::string>()->default_value( "Measure" ), "the display mode in Measure|Truth|Error" );
 #endif
   
   po::variables_map vm;
@@ -168,42 +170,68 @@ int main( int argc, char** argv )
   // 	       << " Loo=" << istat.max() // Loo
   // 	       << std::endl;
 
-  trace.beginBlock( "Compute normal estimations" );
+  auto view     = vm[ "view" ].as<std::string>();
+  std::vector<double> displayed_values;
+  std::vector<double> measured_values;
+  std::vector<double> expected_values;
+  
+  trace.beginBlock( "Compute surfels" );
   auto h        = vm[ "gridstep" ].as<double>();
   auto surfels  = EH::computeDepthFirstSurfelRange( surface );
-  auto normals  = EH::computeNormals( vm, K, shape, surface, bimage, surfels );
   trace.endBlock();
 
-  trace.beginBlock( "Computing corrected normal current" );
-  Current C( surface, h );
-  C.setCorrectedNormals( surfels.begin(), surfels.end(), normals.begin() );
-  const double mcoef = vm["m-coef"].as<double>();
-  const double mpow  = vm["m-pow"].as<double>();
-  const double r     = mcoef*pow( h, mpow );
-  trace.info() << C << " m-ball-r = " << r << std::endl;
-  double              area = 0.0;
-  Statistic<double>   meanCurv;
-  std::vector<double> normalize_m1;
-  unsigned int        i = 0;
-  unsigned int        j = surfels.size();
-  for ( auto v : surfels )
+  if ( view == "Truth" || view == "Error" )
     {
-      trace.progressBar( i++, j );
-      area   += C.mu0( v );
-      auto m0 = C.mu0Ball( v, r );
-      auto m1 = C.mu1Ball( v, r );
-      meanCurv.addValue( (m1/(2.0*h*m0)) );
-      normalize_m1.push_back( (m1/(2.0*h*m0)) );
-      // std::cout << v
-      // 		<< " mu0 = " << m0 << " mu1 = " << m1
-      // 		<< " mu1/(r*mu0) = " << (m1/(2.0*h*m0)) << std::endl;
+      trace.beginBlock( "Compute true curvature" );
+      expected_values = EH::computeMeanCurvatures( K, shape, surfels );
+      Statistic<double>   meanCurv;
+      meanCurv.addValues( expected_values.begin(), expected_values.end() );
+      meanCurv.terminate();
+      trace.info() << "- truth mean curv: avg = " << meanCurv.mean() << std::endl;
+      trace.info() << "- truth curv: min = " << meanCurv.min() << std::endl;
+      trace.info() << "- truth curv: max = " << meanCurv.max() << std::endl;
+      trace.endBlock();
     }
-  meanCurv.terminate();
-  trace.info() << "- area = " << area << std::endl;
-  trace.info() << "- mean curv: avg = " << meanCurv.mean() << std::endl;
-  trace.info() << "- mean curv: min = " << meanCurv.min() << std::endl;
-  trace.info() << "- mean curv: max = " << meanCurv.max() << std::endl;
-  trace.endBlock();
+  if ( view == "Measure" || view == "Error" )
+    {
+      trace.beginBlock( "Compute normal estimations" );
+      auto normals  = EH::computeNormals( vm, K, shape, surface, bimage, surfels );
+      trace.endBlock();
+      
+      trace.beginBlock( "Computing corrected normal current" );
+      Current C( surface, h );
+      C.setCorrectedNormals( surfels.begin(), surfels.end(), normals.begin() );
+      const double mcoef = vm["m-coef"].as<double>();
+      const double mpow  = vm["m-pow"].as<double>();
+      const double r     = mcoef*pow( h, mpow );
+      trace.info() << C << " m-ball-r = " << r << std::endl;
+      double              area = 0.0;
+      std::vector<double> normalize_m1( surfels.size() );
+      unsigned int        i = 0;
+      unsigned int        j = surfels.size();
+      //#pragma omp parallel for schedule(dynamic)
+      for ( ; i < j; ++i )
+	{
+	  auto v  = surfels[ i ];
+	  trace.progressBar( i, j );
+	  area   += C.mu0( v );
+	  auto m0 = C.mu0Ball( v, r );
+	  auto m1 = C.mu1Ball( v, r );
+	  normalize_m1[ i ] = m1/(2.0*h*m0);
+	  // std::cout << v
+	  // 		<< " mu0 = " << m0 << " mu1 = " << m1
+	  // 		<< " mu1/(r*mu0) = " << (m1/(2.0*h*m0)) << std::endl;
+	}
+      Statistic<double>   meanCurv;
+      for ( i = 0; i < j; ++i ) meanCurv.addValue( normalize_m1[ i ] );
+      meanCurv.terminate();
+      trace.info() << "- area = " << area << std::endl;
+      trace.info() << "- mean curv: avg = " << meanCurv.mean() << std::endl;
+      trace.info() << "- mean curv: min = " << meanCurv.min() << std::endl;
+      trace.info() << "- mean curv: max = " << meanCurv.max() << std::endl;
+      trace.endBlock();
+      measured_values = normalize_m1;
+    }
 
 #ifdef WITH_VISU3D_QGLVIEWER
   typedef Viewer3D<Space,KSpace> MyViewever3D;
@@ -213,7 +241,15 @@ int main( int argc, char** argv )
   trace.beginBlock( "View measure" );
   MyViewever3D viewer( K );
   viewer.show();
-  EH::viewSurfelValues( viewer, vm, surfels, normalize_m1 );
+  if ( view == "Measure" )
+    displayed_values = measured_values;
+  else if ( view == "Truth" )
+    displayed_values = expected_values;
+  else if ( view == "Error" )
+    displayed_values = EH::absoluteDifference( measured_values, expected_values );
+  trace.info() << "#surfels=" << surfels.size() << std::endl;
+  trace.info() << "#dvalues=" << displayed_values.size() << std::endl;
+  EH::viewSurfelValues( viewer, vm, surfels, displayed_values );
   viewer << MyViewever3D::updateDisplay;
   application.exec();
   trace.endBlock();

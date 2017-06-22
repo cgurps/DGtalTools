@@ -80,11 +80,67 @@
 
 
 //////////////////////////////////////////////////////////////////////////////
+namespace DGtal {
+  namespace functors {
+    namespace ShapeGeometricFunctors {
+    /**
+     * Description of template class 'ShapeGaussianCurvatureFunctor' <p>
+     * \brief Aim: A functor RealPoint -> Quantity that returns the
+     * gaussian curvature at given point.
+     *
+     * @tparam TShape the type of the shape where geometric estimation
+     * are made. It must have method \a gaussianCurvature.
+     */
+    template <typename TShape>
+    struct ShapeGaussianCurvatureFunctor {
+      typedef TShape Shape;
+      typedef typename Shape::RealPoint RealPoint;
+      typedef typename Shape::RealVector RealVector;
+      typedef typename RealVector::Component Scalar;
+      typedef RealPoint Argument;
+      typedef Scalar Quantity;
+      typedef Quantity Value;
+      
+      /**
+       * Constructor. A shape may also be attached at construction.
+       *
+       * @param aShape the shape of interest. The alias can be secured
+       * if a some counted pointer is handed.
+       */
+      ShapeGaussianCurvatureFunctor( ConstAlias<Shape> aShape = 0 ) : myShape( aShape ) {}
+      
+      /**
+       * Attach a shape.
+       *
+       * @param aShape the shape of interest. The alias can be secured
+       * if a some counted pointer is handed.
+       */
+      void attach( ConstAlias<Shape> aShape )
+      {
+        myShape = aShape;
+      }
 
+      /**
+         Map operator RealPoint -> RealVector giving the normal vector.
+         @param p any point on the shape.
+         @return the normal at point p (as the normalized gradient).
+      */
+      Quantity operator()( const RealPoint & p ) const
+      {
+        return myShape->gaussianCurvature( p );
+      }
+
+    private:
+      /// The shape of interest.
+      CountedConstPtrOrConstPtr<Shape> myShape;
+    };
+    }
+  }
+}
 namespace DGtal
 {
-  namespace po = boost::program_options;
-
+  namespace po  = boost::program_options;
+  namespace sgf = functors::ShapeGeometricFunctors;
   /////////////////////////////////////////////////////////////////////////////
   // template class EstimatorHelpers
   template < typename TKSpace >
@@ -105,9 +161,16 @@ namespace DGtal
     typedef LightImplicitDigitalSurface< KSpace, BinaryImage > SurfaceContainer;
     typedef DigitalSurface< SurfaceContainer >       Surface;
     typedef typename Surface::Surfel                 Surfel;
-    typedef functors::ShapeGeometricFunctors::ShapeNormalVectorFunctor<ImplicitShape> NormalFunctor;
-    typedef TrueDigitalSurfaceLocalEstimator<KSpace, ImplicitShape, NormalFunctor> TrueNormalEstimator;
     typedef DGtal::Statistic<Scalar>                 AngleDevStatistic;
+    typedef sgf::ShapeNormalVectorFunctor<ImplicitShape>      NormalFunctor;
+    typedef sgf::ShapeMeanCurvatureFunctor<ImplicitShape>     MeanCurvatureFunctor;
+    typedef sgf::ShapeGaussianCurvatureFunctor<ImplicitShape> GaussianCurvatureFunctor;
+    typedef TrueDigitalSurfaceLocalEstimator
+    < KSpace, ImplicitShape, NormalFunctor >             TrueNormalEstimator;
+    typedef TrueDigitalSurfaceLocalEstimator
+    < KSpace, ImplicitShape, MeanCurvatureFunctor >      TrueMeanCurvatureEstimator;
+    typedef TrueDigitalSurfaceLocalEstimator
+    < KSpace, ImplicitShape, GaussianCurvatureFunctor >  TrueGaussianCurvatureEstimator;
 #ifdef WITH_VISU3D_QGLVIEWER
     typedef GradientColorMap<Scalar>                 ColorMap;
     typedef Viewer3D<Space,KSpace>                   Viewer;
@@ -234,7 +297,7 @@ namespace DGtal
     static void optionsColorMap( po::options_description& desc )
     {
       desc.add_options()
-	("colormap", po::value<std::string>()->default_value( "Hue" ), "the chosen colormap for displaying values." );
+	("colormap", po::value<std::string>()->default_value( "Jet" ), "the chosen colormap for displaying values." );
     }
 #endif
     
@@ -254,14 +317,15 @@ namespace DGtal
       std::string poly_str = vm[ "polynomial" ].as<std::string>();
       // Recognizes some strings:
       std::vector< std::pair< std::string, std::string > >
-	Ps = { { "sphere1", "1-x^2-y^2-z^2" },
-	       { "sphere9", "81-x^2-y^2-z^2" },
-	       { "ellipse", "90-3*x^2-2*y^2-z^2" },
+	Ps = { { "sphere1", "x^2+y^2+z^2-1" },
+	       { "sphere9", "x^2+y^2+z^2-81" },
+	       { "ellipsoid", "3*x^2+2*y^2+z^2-90" },
+	       { "cylinder", "x^2+2*z^2-90" },
 	       { "torus",   "-1*(x^2+y^2+z^2+6*6-2*2)^2+4*6*6*(x^2+y^2)" },
-	       { "rcube",   "6561-x^4-y^4-z^4" },
-	       { "goursat", "8-0.03*x^4-0.03*y^4-0.03*z^4+2*x^2+2*y^2+2*z^2" },
+	       { "rcube",   "x^4+y^4+z^4-6561" },
+	       { "goursat", "-1*(8-0.03*x^4-0.03*y^4-0.03*z^4+2*x^2+2*y^2+2*z^2)" },
 	       { "distel",  "10000-(x^2+y^2+z^2+1000*(x^2+y^2)*(x^2+z^2)*(y^2+z^2))"},
-	       { "leopold", "100-(x^2*y^2*z^2+4*x^2+4*y^2+3*z^2)" },
+	       { "leopold", "(x^2*y^2*z^2+4*x^2+4*y^2+3*z^2)-100" },
 	       { "diabolo", "x^2-(y^2+z^2)^2" },
 	       { "heart",   "-1*(x^2+2.25*y^2+z^2-1)^3+x^2*z^3+0.1125*y^2*z^3" },
 	       { "crixxi",  "-0.9*(y^2+z^2-1)^2-(x^2+y^2-1)^3" } };
@@ -450,9 +514,61 @@ namespace DGtal
     {
       std::vector< RealVector > n_true_estimations;
       TrueNormalEstimator       true_estimator;
-      Scalar                    h = 1.0; // useless here.
+      const Scalar              h = 1.0; // useless here.
       true_estimator.attach( *shape );
       true_estimator.setParams( K, NormalFunctor(), 20, 0.1, 0.01 );
+      true_estimator.init( h, surfels.begin(), surfels.end() );
+      true_estimator.eval( surfels.begin(), surfels.end(),
+			   std::back_inserter( n_true_estimations ) );
+      return n_true_estimations;
+    }
+
+    /// Given a space \a K, an implicit \a shape, a sequence of \a
+    /// surfels, and a gridstep \a h, returns the true mean curvatures at the
+    /// specified surfels, in the same order.
+    ///
+    /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
+    /// @param[in] shape the implicit shape.
+    /// @param[in] surfels the sequence of surfels at which we compute the mean curvatures.
+    ///
+    /// @return the vector containing the true mean curvatures, in the same
+    /// order as \a surfels.
+    static std::vector< Scalar >
+    computeMeanCurvatures( const KSpace&                K,
+			   CountedPtr<ImplicitShape>    shape,
+			   const std::vector< Surfel >& surfels )
+    {
+      std::vector< Scalar >      n_true_estimations;
+      TrueMeanCurvatureEstimator true_estimator;
+      const Scalar               h = 1.0; // useless here.
+      true_estimator.attach( *shape );
+      true_estimator.setParams( K, MeanCurvatureFunctor(), 20, 0.1, 0.01 );
+      true_estimator.init( h, surfels.begin(), surfels.end() );
+      true_estimator.eval( surfels.begin(), surfels.end(),
+			   std::back_inserter( n_true_estimations ) );
+      return n_true_estimations;
+    }
+
+    /// Given a space \a K, an implicit \a shape, a sequence of \a
+    /// surfels, and a gridstep \a h, returns the true gaussian curvatures at the
+    /// specified surfels, in the same order.
+    ///
+    /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
+    /// @param[in] shape the implicit shape.
+    /// @param[in] surfels the sequence of surfels at which we compute the gaussian curvatures.
+    ///
+    /// @return the vector containing the true gaussian curvatures, in the same
+    /// order as \a surfels.
+    static std::vector< Scalar >
+    computeGaussianCurvatures( const KSpace&                K,
+			       CountedPtr<ImplicitShape>    shape,
+			       const std::vector< Surfel >& surfels )
+    {
+      std::vector< Scalar >          n_true_estimations;
+      TrueGaussianCurvatureEstimator true_estimator;
+      const Scalar                   h = 1.0; // useless here.
+      true_estimator.attach( *shape );
+      true_estimator.setParams( K, GaussianCurvatureFunctor(), 20, 0.1, 0.01 );
       true_estimator.init( h, surfels.begin(), surfels.end() );
       true_estimator.eval( surfels.begin(), surfels.end(),
 			   std::back_inserter( n_true_estimations ) );
@@ -684,6 +800,16 @@ namespace DGtal
       return stat;
     }
 
+    static std::vector< Scalar >
+    absoluteDifference( const std::vector< Scalar > & v1,
+			const std::vector< Scalar > & v2 )
+    {
+      std::vector< Scalar > result( v1.size() );
+      std::transform( v2.cbegin(), v2.cend(), v1.cbegin(), result.begin(), 
+		      [] ( Scalar val1, Scalar val2 )
+		      { return fabs( val1 - val2 ); } );
+      return result;
+    }
 
 #ifdef WITH_VISU3D_QGLVIEWER
     static ColorMap
@@ -711,13 +837,18 @@ namespace DGtal
     {
       Scalar      m = * std::min_element( values.begin(), values.end() );
       Scalar      M = * std::max_element( values.begin(), values.end() );
+      // std::cout << "m=" << m << " M=" << M << std::endl;
       ColorMap cmap = makeColorMap( vm, m, M );
+      // ColorMap cmap = ColorMap( m, M, CMAP_COOL ); 
+      // std::cout << "colormap" << std::endl;
       auto      itV = values.begin(); 
+      // std::cout << "first value=" << *itV << std::endl;
       Surfel  dummy;
       viewer << SetMode3D( dummy.className(), "Basic" );
       for ( auto it = surfels.begin(), itE = surfels.end(); it != itE; ++it )
 	{
 	  Scalar v = *itV++;
+	  // std::cout << " " << v << std::endl;
 	  v = std::min( M, std::max( m, v ) );
           viewer.setFillColor( cmap( v ) );
 	  viewer << *it;

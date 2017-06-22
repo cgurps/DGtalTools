@@ -270,9 +270,10 @@ namespace DGtal
     RealPoint computeCentroid( Cell c ) const
     {
       Point    kp = space().uKCoords( c );
-      Point    lo = Point( (kp[ 0 ]-0) / 2, (kp[ 1 ]-0) / 2, (kp[ 2 ]-0) / 2 );
-      Point    hi = Point( (kp[ 0 ]+1) / 2, (kp[ 1 ]+1) / 2, (kp[ 2 ]+1) / 2 );
-      return   0.5 * ( myEmbedder( lo ) + myEmbedder( hi ) );
+      return   0.5 * myEmbedder( kp );
+      // Point    lo = Point( (kp[ 0 ]-0) / 2, (kp[ 1 ]-0) / 2, (kp[ 2 ]-0) / 2 );
+      // Point    hi = Point( (kp[ 0 ]+1) / 2, (kp[ 1 ]+1) / 2, (kp[ 2 ]+1) / 2 );
+      // return   0.5 * ( myEmbedder( lo ) + myEmbedder( hi ) );
     }
     
     
@@ -393,7 +394,7 @@ namespace DGtal
       Cell       pivot = K.unsigns( theSurface->pivot( faces[ 0 ] ) );
       if ( pivot != pta ) std::swap( pta, ptb );
       RealPoint      a = uCentroid( pta );
-      RealVector     e = a - uCentroid( ptb );//  - a;
+      RealVector     e = a - uCentroid( ptb );
       RealPoint     s0 = sCentroid( s_plus );
       RealPoint     s1 = sCentroid( s_minus );
       // s_plus must be to the left of e.
