@@ -315,9 +315,11 @@ namespace DGtal
     static void optionsDisplayValues( po::options_description& desc )
     {
       desc.add_options()
-	("colormap", po::value<std::string>()->default_value( "Jet" ), "the chosen colormap for displaying values." )
+	("colormap", po::value<std::string>()->default_value( "Tics" ), "the chosen colormap for displaying values." )
 	("zero", po::value<double>()->default_value( 0.0 ), "the value of reference, displayed in black." )
-	("tics", po::value<double>()->default_value( 1.0 ), "the spacing between values with a basis at the reference value, displayed in grey." );
+	("tics", po::value<double>()->default_value( 1.0 ), "the spacing between values with a basis at the reference value, displayed in grey." )
+	("minValue", po::value<double>(), "a specified min value associated with lowest color in colormap ." )
+	("maxValue", po::value<double>(), "a specified max value associated with highest color in colormap ." );
     }
 #endif
     
@@ -864,8 +866,8 @@ namespace DGtal
 #ifdef WITH_VISU3D_QGLVIEWER
     static ColorMap
     makeColorMap( const po::variables_map& vm,
-			   Scalar                   min,
-			   Scalar                   max )
+		  Scalar                   min,
+		  Scalar                   max )
     {
       std::string cmap = vm[ "colormap" ].as<std::string>();
       if      ( cmap == "Cool" )   return ColorMap( min, max, CMAP_COOL );
@@ -876,7 +878,27 @@ namespace DGtal
       else if ( cmap == "Summer" ) return ColorMap( min, max, CMAP_SUMMER );
       else if ( cmap == "Autumn" ) return ColorMap( min, max, CMAP_AUTUMN );
       else if ( cmap == "Winter" ) return ColorMap( min, max, CMAP_WINTER );
-      return ColorMap( min, max, CMAP_COOL );
+      // Custom
+      ColorMap gradcmap( min, max );
+      gradcmap.addColor( Color( 0, 0, 255 ) );
+      gradcmap.addColor( Color( 0, 255, 255 ) );
+      gradcmap.addColor( Color( 255, 255, 255 ) );
+      gradcmap.addColor( Color( 255, 255, 0 ) );
+      gradcmap.addColor( Color( 255, 0, 0 ) );
+      return gradcmap;
+    }
+
+    static ColorMap
+    makeTicsColorMap( Scalar                   min,
+		      Scalar                   max )
+    {
+      ColorMap gradcmap( min, max );
+      gradcmap.addColor( Color( 0, 0, 155 ) );
+      gradcmap.addColor( Color( 0, 155, 155 ) );
+      gradcmap.addColor( Color( 155, 155, 155 ) );
+      gradcmap.addColor( Color( 155, 155, 0 ) );
+      gradcmap.addColor( Color( 155, 0, 0 ) );
+      return gradcmap;
     }
 
     static void
@@ -886,8 +908,12 @@ namespace DGtal
 		      const std::vector< Scalar >&     values,
 		      const std::vector< RealVector >& normals )
     {
-      Scalar      m = * std::min_element( values.begin(), values.end() );
-      Scalar      M = * std::max_element( values.begin(), values.end() );
+      Scalar      m = vm.count( "minValue" )
+	? vm[ "minValue" ].as<double>()
+	: * std::min_element( values.begin(), values.end() );
+      Scalar      M = vm.count( "maxValue" )
+	? vm[ "maxValue" ].as<double>()
+	: * std::max_element( values.begin(), values.end() );
       // std::cout << "m=" << m << " M=" << M << std::endl;
       ColorMap cmap = makeColorMap( vm, m, M );
       // ColorMap cmap = ColorMap( m, M, CMAP_COOL ); 
@@ -919,6 +945,12 @@ namespace DGtal
 			 const std::vector< Surfel >& surfels,
 			 const std::vector< Scalar >& values )
     {
+      Scalar      m = vm.count( "minValue" )
+	? vm[ "minValue" ].as<double>()
+	: * std::min_element( values.begin(), values.end() );
+      Scalar      M = vm.count( "maxValue" )
+	? vm[ "maxValue" ].as<double>()
+	: * std::max_element( values.begin(), values.end() );
       const KSpace& K = surface->container().space();
       // Create map Surfel -> Value
       std::map<Surfel,Scalar> map_values;
@@ -929,6 +961,8 @@ namespace DGtal
       // Display isolines.
       const Scalar l_zero = vm[ "zero" ].as<double>();
       const Scalar l_tics = vm[ "tics" ].as<double>();
+      const ColorMap cmap = makeTicsColorMap( m, M );
+
       const RealPoint  st = RealPoint::diagonal( -0.5 ); 
       for ( auto it = surfels.begin(), itE = surfels.end(); it != itE; ++it )
 	{
@@ -941,9 +975,11 @@ namespace DGtal
 	      Vertex       t = surface->head( a ); 
 	      Scalar   val_t = map_values[ t ] - l_zero;
 	      Integer band_t = (Integer) floor( val_t / l_tics );
-	      if ( (band_s+1) == band_t )
+	      if ( band_s < band_t )
 		{
-		  Color color = band_t == 0 ? Color::Black : Color( 128, 128, 128 );
+		  Scalar  avg = 0.5 * ( val_s + val_t );
+		  avg         = std::min( M, std::max( m, avg ) );
+		  Color color = (band_s < 0 && band_t >= 0) ? Color::Black : cmap( avg );
 		  viewer.setLineColor( color );
 		  viewer.setFillColor( color );
 		  Cell   linel = K.unsigns( surface->separator(a) );
@@ -952,7 +988,7 @@ namespace DGtal
 		  Point     p2 = K.uCoords( K.uIncident( linel, k, true ) );
 		  viewer.addCylinder( RealPoint( p1[ 0 ], p1[ 1 ], p1[ 2 ] ) + st,
 				      RealPoint( p2[ 0 ], p2[ 1 ], p2[ 2 ] ) + st,
-				      0.2 );
+				      0.1 );
 		}
 	    }
 	}
