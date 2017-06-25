@@ -394,7 +394,7 @@ namespace DGtal
       Cell       pivot = K.unsigns( theSurface->pivot( faces[ 0 ] ) );
       if ( pivot != pta ) std::swap( pta, ptb );
       RealPoint      a = uCentroid( pta );
-      RealVector     e = a - uCentroid( ptb );
+      RealVector     e = uCentroid( ptb ) - a;
       RealPoint     s0 = sCentroid( s_plus );
       RealPoint     s1 = sCentroid( s_minus );
       // s_plus must be to the left of e.

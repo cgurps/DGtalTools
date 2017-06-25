@@ -59,6 +59,7 @@
 #include "DGtal/shapes/GaussDigitizer.h"
 #include "DGtal/shapes/ShapeGeometricFunctors.h"
 #include "DGtal/images/ImageContainerBySTLVector.h"
+#include "DGtal/images/IntervalForegroundPredicate.h"
 #include "DGtal/topology/LightImplicitDigitalSurface.h"
 #include "DGtal/topology/DigitalSurface.h"
 #include "DGtal/topology/SurfelAdjacency.h"
@@ -72,6 +73,7 @@
 #include "DGtal/geometry/surfaces/estimation/VCMDigitalSurfaceLocalEstimator.h"
 #include "DGtal/geometry/surfaces/estimation/IIGeometricFunctors.h"
 #include "DGtal/geometry/surfaces/estimation/IntegralInvariantCovarianceEstimator.h"
+#include "DGtal/io/readers/GenericReader.h"
 #ifdef WITH_VISU3D_QGLVIEWER
 #include "DGtal/io/colormaps/GradientColorMap.h"
 #include "DGtal/io/viewers/Viewer3D.h"
@@ -148,6 +150,7 @@ namespace DGtal
   {
     typedef TKSpace                                  KSpace;
     typedef typename KSpace::Space                   Space;
+    typedef typename Space::Integer                  Integer;
     typedef typename Space::Point                    Point;
     typedef typename Space::Vector                   Vector;
     typedef typename Space::RealVector               RealVector;
@@ -158,9 +161,15 @@ namespace DGtal
     typedef GaussDigitizer< Space, ImplicitShape >   ImplicitDigitalShape;
     typedef typename ImplicitDigitalShape::Domain    Domain;
     typedef ImageContainerBySTLVector<Domain, bool>  BinaryImage;
+    typedef ImageContainerBySTLVector<Domain, unsigned char> GrayScaleImage;
     typedef LightImplicitDigitalSurface< KSpace, BinaryImage > SurfaceContainer;
     typedef DigitalSurface< SurfaceContainer >       Surface;
     typedef typename Surface::Surfel                 Surfel;
+    typedef typename Surface::Cell                   Cell;
+    typedef typename Surface::SCell                  SCell;
+    typedef typename Surface::Vertex                 Vertex;
+    typedef typename Surface::Arc                    Arc;
+    typedef typename Surface::ArcRange               ArcRange;
     typedef DGtal::Statistic<Scalar>                 AngleDevStatistic;
     typedef sgf::ShapeNormalVectorFunctor<ImplicitShape>      NormalFunctor;
     typedef sgf::ShapeMeanCurvatureFunctor<ImplicitShape>     MeanCurvatureFunctor;
@@ -272,6 +281,15 @@ namespace DGtal
 	("gridstep,g", po::value< Scalar >()->default_value( 1.0 ), "the gridstep that defines the digitization (often called h). " );
     }
 
+    /// Add options for vol file.
+    static void optionsVolFile( po::options_description& desc )
+    {
+      desc.add_options()
+        ("input,i", po::value<std::string>(), "vol file (.vol) , pgm3d (.p3d or .pgm3d, pgm (with 3 dims)) file or sdp (sequence of discrete points)" )
+	("thresholdMin,m",  po::value<int>()->default_value(0), "threshold min (excluded) to define binary shape" )
+	("thresholdMax,M",  po::value<int>()->default_value(255), "threshold max (included) to define binary shape" );
+    }
+
     /// Add options for implicit shape digitization.
     static void optionsNoisyImage( po::options_description& desc )
     {
@@ -294,10 +312,12 @@ namespace DGtal
 
 #ifdef WITH_VISU3D_QGLVIEWER
     /// Add options for implicit shape digitization.
-    static void optionsColorMap( po::options_description& desc )
+    static void optionsDisplayValues( po::options_description& desc )
     {
       desc.add_options()
-	("colormap", po::value<std::string>()->default_value( "Jet" ), "the chosen colormap for displaying values." );
+	("colormap", po::value<std::string>()->default_value( "Jet" ), "the chosen colormap for displaying values." )
+	("zero", po::value<double>()->default_value( 0.0 ), "the value of reference, displayed in black." )
+	("tics", po::value<double>()->default_value( 1.0 ), "the spacing between values with a basis at the reference value, displayed in grey." );
     }
 #endif
     
@@ -321,7 +341,7 @@ namespace DGtal
 	       { "sphere9", "x^2+y^2+z^2-81" },
 	       { "ellipsoid", "3*x^2+2*y^2+z^2-90" },
 	       { "cylinder", "x^2+2*z^2-90" },
-	       { "torus",   "-1*(x^2+y^2+z^2+6*6-2*2)^2+4*6*6*(x^2+y^2)" },
+	       { "torus",   "(x^2+y^2+z^2+6*6-2*2)^2-4*6*6*(x^2+y^2)" },
 	       { "rcube",   "x^4+y^4+z^4-6561" },
 	       { "goursat", "-1*(8-0.03*x^4-0.03*y^4-0.03*z^4+2*x^2+2*y^2+2*z^2)" },
 	       { "distel",  "10000-(x^2+y^2+z^2+1000*(x^2+y^2)*(x^2+z^2)*(y^2+z^2))"},
@@ -437,6 +457,31 @@ namespace DGtal
 	return makeNoisyImage( dshape, noiseLevel );
     }
 
+    static CountedPtr<BinaryImage>
+    makeImageFromVolFile( const po::variables_map& vm,
+			  KSpace&                  K )
+    {
+      string inputFilename = vm["input"].as<std::string>();
+      int thresholdMin     = vm["thresholdMin"].as<int>();
+      int thresholdMax     = vm["thresholdMax"].as<int>();
+      GrayScaleImage image = GenericReader<GrayScaleImage>::import( inputFilename );
+      Domain        domain = image.domain();
+      bool        space_ok = K.init( domain.lowerBound(), domain.upperBound(), true );
+      if ( ! space_ok )
+	{
+	  trace.error() << "[EstimatorHelpers::makeImageFromVolFile]"
+			<< " error in space initialization." << std::endl;
+	  return CountedPtr<BinaryImage>( nullptr );
+	}
+      typedef functors::IntervalForegroundPredicate<GrayScaleImage> ThresholdedImage;
+      ThresholdedImage tImage( image, thresholdMin, thresholdMax );
+      CountedPtr<BinaryImage> img ( new BinaryImage( domain ) );
+      std::transform( domain.begin(), domain.end(),
+		      img->begin(),
+		      [tImage] ( const Point& p ) { return tImage(p); } );
+      return img;
+    }
+    
     /// Builds a digital surface from a space \a K and a binary image \a bimage.
     ///
     /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
@@ -503,6 +548,7 @@ namespace DGtal
     ///
     /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
     /// @param[in] shape the implicit shape.
+    /// @param[in] h the grid step to embed surfels.
     /// @param[in] surfels the sequence of surfels at which we compute the normals
     ///
     /// @return the vector containing the true normals, in the same
@@ -510,13 +556,13 @@ namespace DGtal
     static std::vector< RealVector >
     computeTrueNormals( const KSpace&                K,
 			CountedPtr<ImplicitShape>    shape,
+			const Scalar                 h,
 			const std::vector< Surfel >& surfels )
     {
       std::vector< RealVector > n_true_estimations;
       TrueNormalEstimator       true_estimator;
-      const Scalar              h = 1.0; // useless here.
       true_estimator.attach( *shape );
-      true_estimator.setParams( K, NormalFunctor(), 20, 0.1, 0.01 );
+      true_estimator.setParams( K, NormalFunctor(), 20, 0.0001, 0.5 );
       true_estimator.init( h, surfels.begin(), surfels.end() );
       true_estimator.eval( surfels.begin(), surfels.end(),
 			   std::back_inserter( n_true_estimations ) );
@@ -529,6 +575,7 @@ namespace DGtal
     ///
     /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
     /// @param[in] shape the implicit shape.
+    /// @param[in] h the grid step to embed surfels.
     /// @param[in] surfels the sequence of surfels at which we compute the mean curvatures.
     ///
     /// @return the vector containing the true mean curvatures, in the same
@@ -536,18 +583,19 @@ namespace DGtal
     static std::vector< Scalar >
     computeMeanCurvatures( const KSpace&                K,
 			   CountedPtr<ImplicitShape>    shape,
+			   const Scalar                 h,
 			   const std::vector< Surfel >& surfels )
     {
       std::vector< Scalar >      n_true_estimations;
       TrueMeanCurvatureEstimator true_estimator;
-      const Scalar               h = 1.0; // useless here.
       true_estimator.attach( *shape );
-      true_estimator.setParams( K, MeanCurvatureFunctor(), 20, 0.1, 0.01 );
+      true_estimator.setParams( K, MeanCurvatureFunctor(), 20, 0.0001, 0.5 );
       true_estimator.init( h, surfels.begin(), surfels.end() );
       true_estimator.eval( surfels.begin(), surfels.end(),
 			   std::back_inserter( n_true_estimations ) );
       return n_true_estimations;
     }
+
 
     /// Given a space \a K, an implicit \a shape, a sequence of \a
     /// surfels, and a gridstep \a h, returns the true gaussian curvatures at the
@@ -555,6 +603,7 @@ namespace DGtal
     ///
     /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
     /// @param[in] shape the implicit shape.
+    /// @param[in] h the grid step to embed surfels.
     /// @param[in] surfels the sequence of surfels at which we compute the gaussian curvatures.
     ///
     /// @return the vector containing the true gaussian curvatures, in the same
@@ -562,13 +611,13 @@ namespace DGtal
     static std::vector< Scalar >
     computeGaussianCurvatures( const KSpace&                K,
 			       CountedPtr<ImplicitShape>    shape,
+			       const Scalar                 h,
 			       const std::vector< Surfel >& surfels )
     {
       std::vector< Scalar >          n_true_estimations;
       TrueGaussianCurvatureEstimator true_estimator;
-      const Scalar                   h = 1.0; // useless here.
       true_estimator.attach( *shape );
-      true_estimator.setParams( K, GaussianCurvatureFunctor(), 20, 0.1, 0.01 );
+      true_estimator.setParams( K, GaussianCurvatureFunctor(), 20, 0.0001, 0.5 );
       true_estimator.init( h, surfels.begin(), surfels.end() );
       true_estimator.eval( surfels.begin(), surfels.end(),
 			   std::back_inserter( n_true_estimations ) );
@@ -733,9 +782,10 @@ namespace DGtal
 		    const std::vector< Surfel >& surfels )
     {
       std::string estimator = vm[ "estimator" ].as<std::string>();
+      const Scalar        h = vm[ "gridstep" ].as<Scalar>();
       if ( estimator == "True" )
 	{
-	  if ( shape != 0 ) return computeTrueNormals( K, shape, surfels );
+	  if ( shape != 0 ) return computeTrueNormals( K, shape, h, surfels );
 	  trace.error() << "[EstimatorHelpers::computeNormals]"
 			<< " Error. Cannot estimate true normals if implicit shape is not given."
 			<< std::endl;
@@ -831,9 +881,10 @@ namespace DGtal
 
     static void
     viewSurfelValues( Viewer& viewer,
-		      const po::variables_map&     vm,
-		      const std::vector< Surfel >& surfels,
-		      const std::vector< Scalar >& values )
+		      const po::variables_map&         vm,
+		      const std::vector< Surfel >&     surfels,
+		      const std::vector< Scalar >&     values,
+		      const std::vector< RealVector >& normals )
     {
       Scalar      m = * std::min_element( values.begin(), values.end() );
       Scalar      M = * std::max_element( values.begin(), values.end() );
@@ -841,17 +892,69 @@ namespace DGtal
       ColorMap cmap = makeColorMap( vm, m, M );
       // ColorMap cmap = ColorMap( m, M, CMAP_COOL ); 
       // std::cout << "colormap" << std::endl;
-      auto      itV = values.begin(); 
+      auto      itV  = values.cbegin(); 
+      auto      itN  = normals.cbegin(); 
+      auto      itNE = normals.cend(); 
       // std::cout << "first value=" << *itV << std::endl;
       Surfel  dummy;
       viewer << SetMode3D( dummy.className(), "Basic" );
-      for ( auto it = surfels.begin(), itE = surfels.end(); it != itE; ++it )
+      for ( auto it = surfels.cbegin(), itE = surfels.cend(); it != itE; ++it )
 	{
-	  Scalar v = *itV++;
+	  Scalar          v = *itV++;
 	  // std::cout << " " << v << std::endl;
 	  v = std::min( M, std::max( m, v ) );
           viewer.setFillColor( cmap( v ) );
-	  viewer << *it;
+	  // Display surfel with or without normal estimation.
+	  if ( itN != itNE )
+	    DisplayFactory::drawOrientedSurfelWithNormal( viewer, *it, *itN++, false );
+	  else
+	    viewer << *it;
+	}
+    }
+    
+    static void
+    viewSurfaceIsolines( Viewer& viewer,
+			 const po::variables_map&     vm,
+			 CountedPtr<Surface>          surface,
+			 const std::vector< Surfel >& surfels,
+			 const std::vector< Scalar >& values )
+    {
+      const KSpace& K = surface->container().space();
+      // Create map Surfel -> Value
+      std::map<Surfel,Scalar> map_values;
+      auto      itV = values.begin(); 
+      for ( auto it = surfels.begin(), itE = surfels.end(); it != itE; ++it )
+	map_values[ *it ] = *itV++;
+      
+      // Display isolines.
+      const Scalar l_zero = vm[ "zero" ].as<double>();
+      const Scalar l_tics = vm[ "tics" ].as<double>();
+      const RealPoint  st = RealPoint::diagonal( -0.5 ); 
+      for ( auto it = surfels.begin(), itE = surfels.end(); it != itE; ++it )
+	{
+	  Vertex       s = *it;
+	  Scalar   val_s = map_values[ s ] - l_zero;
+	  Integer band_s = (Integer) floor( val_s / l_tics );
+	  ArcRange  arcs = surface->outArcs( s );
+	  for ( auto a : arcs )
+	    {
+	      Vertex       t = surface->head( a ); 
+	      Scalar   val_t = map_values[ t ] - l_zero;
+	      Integer band_t = (Integer) floor( val_t / l_tics );
+	      if ( (band_s+1) == band_t )
+		{
+		  Color color = band_t == 0 ? Color::Black : Color( 128, 128, 128 );
+		  viewer.setLineColor( color );
+		  viewer.setFillColor( color );
+		  Cell   linel = K.unsigns( surface->separator(a) );
+		  Dimension  k = * ( K.uDirs( linel ) );
+		  Point     p1 = K.uCoords( K.uIncident( linel, k, false ) );
+		  Point     p2 = K.uCoords( K.uIncident( linel, k, true ) );
+		  viewer.addCylinder( RealPoint( p1[ 0 ], p1[ 1 ], p1[ 2 ] ) + st,
+				      RealPoint( p2[ 0 ], p2[ 1 ], p2[ 2 ] ) + st,
+				      0.2 );
+		}
+	    }
 	}
     }
 #endif

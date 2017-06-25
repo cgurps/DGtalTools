@@ -91,6 +91,9 @@ int main( int argc, char** argv )
   typedef Z3i::KSpace                     KSpace;
   typedef EstimatorHelpers< KSpace >      EH;
   typedef EH::Surface                     Surface;
+  typedef EH::RealVector                  RealVector;
+  typedef EH::BinaryImage                 BinaryImage;
+  typedef EH::ImplicitShape               ImplicitShape;
   typedef CorrectedNormalCurrent<Surface> Current;
   // parse command line ----------------------------------------------
   po::options_description general_opt( "Allowed options are" );
@@ -101,10 +104,11 @@ int main( int argc, char** argv )
   
   EH::optionsImplicitShape   ( general_opt );
   EH::optionsDigitizedShape  ( general_opt );
+  EH::optionsVolFile         ( general_opt );
   EH::optionsNoisyImage      ( general_opt );
   EH::optionsNormalEstimators( general_opt );
 #ifdef WITH_VISU3D_QGLVIEWER
-  EH::optionsColorMap        ( general_opt );
+  EH::optionsDisplayValues   ( general_opt );
   general_opt.add_options()
     ( "view,V", po::value<std::string>()->default_value( "Measure" ), "the display mode in Measure|Truth|Error" );
 #endif
@@ -113,8 +117,8 @@ int main( int argc, char** argv )
   bool parseOK = EH::args2vm( general_opt, argc, argv, vm );
   bool neededArgsGiven=true;
 
-  if (parseOK && !(vm.count("polynomial"))){
-    missingParam("--polynomial");
+  if (parseOK && ( ! vm.count("polynomial") ) && ( ! vm.count( "input" ) ) ) {
+    missingParam("--polynomial or --input");
     neededArgsGiven=false;
   }
   
@@ -124,22 +128,34 @@ int main( int argc, char** argv )
                   << general_opt << "\n"
                   << "Basic usage: "<<std::endl
                   << "\t 3dCorrectedNormalCurrent -p \"3x^2+5y^2+7z^2-1\" "<<std::endl
+                  << "\t 3dCorrectedNormalCurrent -i \"file.vol\" "<<std::endl
                   << std::endl;
       return 0;
     }
 
   // Digital space.
-  KSpace K;
+  KSpace                        K;
+  unsigned int                 nb = 0;
+  CountedPtr<BinaryImage>  bimage( nullptr );
+  CountedPtr<ImplicitShape> shape( nullptr );
   
-  trace.beginBlock( "Make implicit shape and digitized shape" );
-  unsigned int nb = 0;
-  auto shape   = EH::makeImplicitShape ( vm );
-  auto dshape  = EH::makeDigitizedShape( vm, shape, K );
-  auto size    = dshape->getDomain().upperBound() - dshape->getDomain().lowerBound();
-  trace.info() << "- Domain size is " << ( size[ 0 ] + 1 ) << " x " << ( size[ 1 ] + 1 )
-	       << " x " << ( size[ 2 ] + 1 ) << std::endl;
-  auto bimage  = EH::makeNoisyOrNotImage( vm, dshape );
-  std::for_each( bimage->cbegin(), bimage->cend(), [&nb] ( bool v ) { nb += v ? 1 : 0; } );
+  trace.beginBlock( "Make Shape" );
+  if ( vm.count( "polynomial" ) )
+    {
+      shape        = EH::makeImplicitShape ( vm );
+      auto dshape  = EH::makeDigitizedShape( vm, shape, K );
+      auto size    = dshape->getDomain().upperBound() - dshape->getDomain().lowerBound();
+      trace.info() << "- Domain size is " << ( size[ 0 ] + 1 )
+		   << " x " << ( size[ 1 ] + 1 )
+		   << " x " << ( size[ 2 ] + 1 ) << std::endl;
+      bimage       = EH::makeNoisyOrNotImage( vm, dshape );
+    }
+  else if ( vm.count( "input" ) )
+    {
+      bimage       = EH::makeImageFromVolFile( vm, K );
+    }
+  std::for_each( bimage->cbegin(), bimage->cend(),
+		 [&nb] ( bool v ) { nb += v ? 1 : 0; } );
   trace.info() << "- digital shape has " << nb << " voxels." << std::endl;
   auto surface = EH::makeDigitalSurface( K, bimage );
   trace.info() << "- surface component has " << surface->size()<< " surfels." << std::endl;
@@ -171,9 +187,10 @@ int main( int argc, char** argv )
   // 	       << std::endl;
 
   auto view     = vm[ "view" ].as<std::string>();
-  std::vector<double> displayed_values;
-  std::vector<double> measured_values;
-  std::vector<double> expected_values;
+  std::vector<double>     displayed_values;
+  std::vector<double>     measured_values;
+  std::vector<double>     expected_values;
+  std::vector<RealVector> normals;
   
   trace.beginBlock( "Compute surfels" );
   auto h        = vm[ "gridstep" ].as<double>();
@@ -183,7 +200,9 @@ int main( int argc, char** argv )
   if ( view == "Truth" || view == "Error" )
     {
       trace.beginBlock( "Compute true curvature" );
-      expected_values = EH::computeMeanCurvatures( K, shape, surfels );
+      normals         = EH::computeTrueNormals   ( K, shape, h, surfels );
+      expected_values = EH::computeMeanCurvatures( K, shape, h, surfels );
+      //expected_values = EH::computeGaussianCurvatures( K, shape, h, surfels );
       Statistic<double>   meanCurv;
       meanCurv.addValues( expected_values.begin(), expected_values.end() );
       meanCurv.terminate();
@@ -195,7 +214,7 @@ int main( int argc, char** argv )
   if ( view == "Measure" || view == "Error" )
     {
       trace.beginBlock( "Compute normal estimations" );
-      auto normals  = EH::computeNormals( vm, K, shape, surface, bimage, surfels );
+      normals  = EH::computeNormals( vm, K, shape, surface, bimage, surfels );
       trace.endBlock();
       
       trace.beginBlock( "Computing corrected normal current" );
@@ -217,7 +236,7 @@ int main( int argc, char** argv )
 	  area   += C.mu0( v );
 	  auto m0 = C.mu0Ball( v, r );
 	  auto m1 = C.mu1Ball( v, r );
-	  normalize_m1[ i ] = m1/(2.0*h*m0);
+	  normalize_m1[ i ] = m1 / m0; 
 	  // std::cout << v
 	  // 		<< " mu0 = " << m0 << " mu1 = " << m1
 	  // 		<< " mu1/(r*mu0) = " << (m1/(2.0*h*m0)) << std::endl;
@@ -239,6 +258,9 @@ int main( int argc, char** argv )
 
   QApplication application( argc, argv );
   trace.beginBlock( "View measure" );
+  trace.info() << "view mode is " << view << std::endl;
+  trace.info() << "#mvalues=" << measured_values.size() << std::endl;
+  trace.info() << "#evalues=" << expected_values.size() << std::endl;
   MyViewever3D viewer( K );
   viewer.show();
   if ( view == "Measure" )
@@ -249,7 +271,8 @@ int main( int argc, char** argv )
     displayed_values = EH::absoluteDifference( measured_values, expected_values );
   trace.info() << "#surfels=" << surfels.size() << std::endl;
   trace.info() << "#dvalues=" << displayed_values.size() << std::endl;
-  EH::viewSurfelValues( viewer, vm, surfels, displayed_values );
+  EH::viewSurfelValues( viewer, vm, surfels, displayed_values, normals );
+  EH::viewSurfaceIsolines( viewer, vm, surface, surfels, displayed_values );
   viewer << MyViewever3D::updateDisplay;
   application.exec();
   trace.endBlock();
