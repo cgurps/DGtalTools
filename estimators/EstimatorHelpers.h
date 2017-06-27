@@ -852,6 +852,10 @@ namespace DGtal
       return stat;
     }
 
+    /// Computes the absolute difference between each element of the two vectors.
+    /// @param[in] v1 any vector of values.
+    /// @param[in] v2 any vector of values.
+    /// @return the vector composed of elemenst |v1[i]-v2[i]|.
     static std::vector< Scalar >
     absoluteDifference( const std::vector< Scalar > & v1,
 			const std::vector< Scalar > & v2 )

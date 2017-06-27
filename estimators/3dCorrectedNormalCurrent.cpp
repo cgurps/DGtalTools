@@ -110,6 +110,7 @@ int main( int argc, char** argv )
 #ifdef WITH_VISU3D_QGLVIEWER
   EH::optionsDisplayValues   ( general_opt );
   general_opt.add_options()
+    ( "quantity,Q", po::value<std::string>()->default_value( "Mu1" ), "the quantity that is evaluated in Mu0|Mu1|H, with H := Mu1/(2Mu0)" )
     ( "view,V", po::value<std::string>()->default_value( "Measure" ), "the display mode in Measure|Truth|Error" );
 #endif
   
@@ -223,33 +224,41 @@ int main( int argc, char** argv )
       const double mcoef = vm["m-coef"].as<double>();
       const double mpow  = vm["m-pow"].as<double>();
       const double r     = mcoef*pow( h, mpow );
-      trace.info() << C << " m-ball-r = " << r << std::endl;
+      trace.info() << C << " m-ball-r = " << r << "(continuous)"
+		   << " " << (r/h) << " (discrete)" << std::endl;
       double              area = 0.0;
-      std::vector<double> normalize_m1( surfels.size() );
+      std::vector<double> mu0( surfels.size() );
+      std::vector<double> mu1( surfels.size() );
+      std::vector<double> h1 ( surfels.size() );
       unsigned int        i = 0;
       unsigned int        j = surfels.size();
+      std::string  quantity = vm[ "quantity" ].as<std::string>();
+      
       //#pragma omp parallel for schedule(dynamic)
       for ( ; i < j; ++i )
 	{
-	  auto v  = surfels[ i ];
 	  trace.progressBar( i, j );
-	  area   += C.mu0( v );
-	  auto m0 = C.mu0Ball( v, r );
-	  auto m1 = C.mu1Ball( v, r );
-	  normalize_m1[ i ] = m1 / m0; 
-	  // std::cout << v
-	  // 		<< " mu0 = " << m0 << " mu1 = " << m1
-	  // 		<< " mu1/(r*mu0) = " << (m1/(2.0*h*m0)) << std::endl;
+	  auto v   = surfels[ i ];
+	  area    += C.mu0( v );
+	  mu0[ i ] = C.mu0Ball( v, r );
+	  mu1[ i ] = C.mu1Ball( v, r );
+	}
+      if ( quantity == "Mu0" ) measured_values = mu0;
+      else if ( quantity == "Mu1" ) measured_values = mu1;
+      else if ( quantity == "H" )
+	{
+	  measured_values.resize( surfels.size() );
+	  std::transform( mu0.cbegin(), mu0.cend(), mu1.cbegin(), measured_values.begin(),
+			  [] ( double m0, double m1 ) { return m1 / (2.0*m0); } );
 	}
       Statistic<double>   meanCurv;
-      for ( i = 0; i < j; ++i ) meanCurv.addValue( normalize_m1[ i ] );
+      for ( i = 0; i < j; ++i ) meanCurv.addValue( measured_values[ i ] );
       meanCurv.terminate();
       trace.info() << "- area = " << area << std::endl;
       trace.info() << "- mean curv: avg = " << meanCurv.mean() << std::endl;
       trace.info() << "- mean curv: min = " << meanCurv.min() << std::endl;
       trace.info() << "- mean curv: max = " << meanCurv.max() << std::endl;
       trace.endBlock();
-      measured_values = normalize_m1;
     }
 
 #ifdef WITH_VISU3D_QGLVIEWER
