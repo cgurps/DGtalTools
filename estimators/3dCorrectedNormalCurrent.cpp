@@ -87,6 +87,10 @@ namespace po = boost::program_options;
 
 int main( int argc, char** argv )
 {
+#ifdef WITH_VISU3D_QGLVIEWER
+  QApplication application( argc, argv );
+#endif
+  
   typedef Z3i::Space                      Space;
   typedef Z3i::KSpace                     KSpace;
   typedef EstimatorHelpers< KSpace >      EH;
@@ -110,7 +114,7 @@ int main( int argc, char** argv )
 #ifdef WITH_VISU3D_QGLVIEWER
   EH::optionsDisplayValues   ( general_opt );
   general_opt.add_options()
-    ( "quantity,Q", po::value<std::string>()->default_value( "Mu1" ), "the quantity that is evaluated in Mu0|Mu1|H, with H := Mu1/(2Mu0)" )
+    ( "quantity,Q", po::value<std::string>()->default_value( "Mu1" ), "the quantity that is evaluated in Mu0|Mu1|Mu2|H|G, with H := Mu1/(2Mu0) and G := Mu2/Mu0" )
     ( "view,V", po::value<std::string>()->default_value( "Measure" ), "the display mode in Measure|Truth|Error" );
 #endif
   
@@ -229,27 +233,43 @@ int main( int argc, char** argv )
       double              area = 0.0;
       std::vector<double> mu0( surfels.size() );
       std::vector<double> mu1( surfels.size() );
-      std::vector<double> h1 ( surfels.size() );
+      std::vector<double> mu2( surfels.size() );
       unsigned int        i = 0;
       unsigned int        j = surfels.size();
       std::string  quantity = vm[ "quantity" ].as<std::string>();
-      
+      bool       mu0_needed = false;
+      bool       mu1_needed = false;
+      bool       mu2_needed = false;
+      if ( quantity == "Mu0" ) mu0_needed = true;
+      if ( quantity == "Mu1" ) mu1_needed = true;
+      if ( quantity == "Mu2" ) mu2_needed = true;
+      if ( quantity == "H" )   mu0_needed = mu1_needed = true;
+      if ( quantity == "G" )   mu0_needed = mu2_needed = true;
       //#pragma omp parallel for schedule(dynamic)
       for ( ; i < j; ++i )
 	{
+	  // std::cout << i << " / " << j << std::endl;
 	  trace.progressBar( i, j );
 	  auto v   = surfels[ i ];
 	  area    += C.mu0( v );
-	  mu0[ i ] = C.mu0Ball( v, r );
-	  mu1[ i ] = C.mu1Ball( v, r );
+	  if ( mu0_needed ) mu0[ i ] = C.mu0Ball( v, r );
+	  if ( mu1_needed ) mu1[ i ] = C.mu1Ball( v, r );
+	  if ( mu2_needed ) mu2[ i ] = C.mu2Ball( v, r );
 	}
       if ( quantity == "Mu0" ) measured_values = mu0;
       else if ( quantity == "Mu1" ) measured_values = mu1;
+      else if ( quantity == "Mu2" ) measured_values = mu2;
       else if ( quantity == "H" )
 	{
 	  measured_values.resize( surfels.size() );
 	  std::transform( mu0.cbegin(), mu0.cend(), mu1.cbegin(), measured_values.begin(),
 			  [] ( double m0, double m1 ) { return m1 / (2.0*m0); } );
+	}
+      else if ( quantity == "G" )
+	{
+	  measured_values.resize( surfels.size() );
+	  std::transform( mu0.cbegin(), mu0.cend(), mu2.cbegin(), measured_values.begin(),
+			  [] ( double m0, double m2 ) { return m2 / m0; } );
 	}
       Statistic<double>   meanCurv;
       for ( i = 0; i < j; ++i ) meanCurv.addValue( measured_values[ i ] );
@@ -265,7 +285,6 @@ int main( int argc, char** argv )
   typedef Viewer3D<Space,KSpace> MyViewever3D;
   typedef Display3DFactory<Space,KSpace> MyDisplay3DFactory;
 
-  QApplication application( argc, argv );
   trace.beginBlock( "View measure" );
   trace.info() << "view mode is " << view << std::endl;
   trace.info() << "#mvalues=" << measured_values.size() << std::endl;

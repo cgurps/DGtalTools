@@ -45,6 +45,7 @@
 #include "DGtal/base/Common.h"
 #include "DGtal/topology/CDigitalSurfaceContainer.h"
 #include "DGtal/graph/DistanceBreadthFirstVisitor.h"
+#include "SphericalTriangle.h"
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -80,6 +81,7 @@ namespace DGtal
     typedef typename Surface::ConstIterator           ConstIterator;
     typedef typename Surface::VertexRange             VertexRange;
     typedef typename Surface::ArcRange                ArcRange;
+    typedef typename Surface::FaceRange               FaceRange;
     typedef typename KSpace::Space                    Space;
     typedef typename Space::Point                     Point;
     typedef typename Space::Vector                    Vector;
@@ -90,6 +92,7 @@ namespace DGtal
     typedef std::map< Cell,   RealPoint >             CentroidMap;
     typedef std::map< Vertex, Scalar >                Measure0Map;
     typedef std::map< Arc,    Scalar >                Measure1Map;
+    typedef std::map< Face,   Scalar >                Measure2Map;
 
     // Checks that dimension is 3.
     BOOST_STATIC_ASSERT(( KSpace::dimension == 3 ));
@@ -327,10 +330,11 @@ namespace DGtal
     /// d\mathcal{H}^2 \f$.
     Scalar mu0( Vertex c )
     {
-      typename Measure0Map::iterator it = myMu0.find( c );
-      if ( it != myMu0.end() ) return it->second;
-      it->second = computeMu0( c );
-      return it->second;
+      return computeMu0( c );
+      // typename Measure0Map::iterator it = myMu0.find( c );
+      // if ( it != myMu0.end() ) return it->second;
+      // it->second = computeMu0( c );
+      // return it->second;
     }
     
     /// \f$ \mu_0 \f$ Lipschitz-Killing measure. It corresponds to a
@@ -343,7 +347,7 @@ namespace DGtal
     /// d\mathcal{H}^2 \f$.
     Scalar computeMu0( Vertex c )
     {
-      if ( space().sDim( c ) != 2 ) return 0.0;
+      ASSERT( space().sDim( c ) == 2 );
       return Hmeasure( 2 ) * myTrivialNormals[ c ].dot( myCorrectedNormals[ c ] );
     }
 
@@ -360,12 +364,13 @@ namespace DGtal
     /// \vec{e} \cdot \vec{e}_1 d\mathcal{H}^1 \f$.
     Scalar mu1( Arc arc )
     {
-      typename Measure1Map::iterator it = myMu1.find( arc );
+      auto it = myMu1.find( arc );
       if ( it != myMu1.end() ) return it->second;
       it = myMu1.find( theSurface->opposite( arc ) );
       if ( it != myMu1.end() ) return it->second;
-      it->second = computeMu1( arc );
-      return it->second;
+      const Scalar m1 = computeMu1( arc );
+      myMu1[ arc ]    = m1;
+      return m1;
     }
     
     /// \f$ \mu_1 \f$ Lipschitz-Killing measure. It corresponds to a
@@ -413,6 +418,54 @@ namespace DGtal
       // return  psi * e.dot( e1 );
     }
 
+    /// \f$ \mu_2 \f$ Lipschitz-Killing measure. It corresponds to a
+    /// measure of Gaussian curvature, since normal vectors form a cone
+    /// around a vertex, and is non null only on 0-cells (or Face). The
+    /// measure is oriented, but gives the same result on a face or its opposite.
+    ///
+    /// @param[in] f any face (ie a 0-cell in-between several 2-cells on 3D digital
+    /// surfaces).
+    ///
+    /// @return the corrected Gaussian curvature measure \f$ \mu_0
+    /// \f$, which is the area of the spherical polygon made by the
+    /// normals onto the Gauss sphere.
+    Scalar mu2( Face face )
+    {
+      auto it = myMu2.find( face );
+      if ( it != myMu2.end() ) return it->second;
+      const Scalar m2 = computeMu2( face );
+      myMu2[ face ]   = m2;
+      return m2;
+    }
+
+    /// \f$ \mu_2 \f$ Lipschitz-Killing measure. It corresponds to a
+    /// measure of Gaussian curvature, since normal vectors form a cone
+    /// around a vertex, and is non null only on 0-cells (or Face). The
+    /// measure is oriented, but gives the same result on a face or its opposite.
+    ///
+    /// @param[in] f any face (ie a 0-cell in-between several 2-cells on 3D digital
+    /// surfaces).
+    ///
+    /// @return the corrected Gaussian curvature measure \f$ \mu_0
+    /// \f$, which is the area of the spherical polygon made by the
+    /// normals onto the Gauss sphere.
+    Scalar computeMu2( Face face )
+    {
+      VertexRange     vtcs = theSurface->verticesAroundFace( face );
+      const unsigned int n = vtcs.size();
+      // std::cout << n << std::endl;
+      std::vector< RealVector > normals( n );
+      for ( unsigned int i = 0; i < n; ++i )
+	normals[ i ] = myCorrectedNormals[ vtcs[ i ] ];
+      Scalar S = 0.0;
+      for ( unsigned int i = 0; i <= n-3; ++i )
+	{
+	  SphericalTriangle<Space> ST( normals[ i ], normals[ i+2 ], normals[ i+1 ] );
+	  S += ST.algebraicArea();
+	}
+      return S;
+    }
+    
     Scalar mu0( RealPoint p, Scalar r, Vertex c )
     {
       Scalar ri = sRelativeIntersection( p, r, c );
@@ -424,6 +477,13 @@ namespace DGtal
       SCell linel = theSurface->separator( a ); // oriented 1-cell
       Scalar   ri = sRelativeIntersection( p, r, linel );
       return ri != 0.0 ? ri * mu1( a ) : 0.0;
+    }
+
+    Scalar mu2( RealPoint p, Scalar r, const Face& f )
+    {
+      SCell pointel = theSurface->pivot( f ); // oriented 1-cell
+      Scalar     ri = sRelativeIntersection( p, r, pointel );
+      return ri != 0.0 ? ri * mu2( f ) : 0.0;
     }
 
     struct SquaredDistance2Point {
@@ -483,6 +543,18 @@ namespace DGtal
       return ArcRange( arcs.begin(), arcs.end() );
     }
 
+    FaceRange getFacesInBall( SCell c, Scalar r )
+    {
+      VertexRange scells = getSurfelsInBall( c, r );
+      std::set<Face> faces;
+      for ( auto s : scells )
+	{
+	  auto l_faces = theSurface->facesAroundVertex( s );
+	  faces.insert( l_faces.begin(), l_faces.end() );
+	}
+      return FaceRange( faces.begin(), faces.end() );
+    }
+
     Scalar mu0Ball( SCell c, Scalar r )
     {
       VertexRange vtcs = getSurfelsInBall( c, r );
@@ -503,6 +575,19 @@ namespace DGtal
 	m1      += mu1( x, r, a ); 
       }
       return m1;
+    }
+
+    Scalar mu2Ball( SCell c, Scalar r )
+    {
+      // std::cout << "mu2ball c=" << c << " r=" << r << std::endl;
+      FaceRange  faces = getFacesInBall( c, r );
+      // std::cout << "mu2ball #faces=" << faces.size() << std::endl;
+      Scalar        m2 = 0.0;
+      RealPoint      x = sCentroid( c );
+      for ( auto f : faces ) {
+	m2      += mu2( x, r, f ); 
+      }
+      return m2;
     }
     
     // ----------------------- Interface --------------------------------------
@@ -539,6 +624,8 @@ namespace DGtal
     Measure0Map              myMu0;
     /// The map Arc -> mu1
     Measure1Map              myMu1;
+    /// The map Arc -> mu2
+    Measure2Map              myMu2;
     
     // ------------------------- Hidden services ------------------------------
   protected:
