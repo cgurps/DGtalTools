@@ -301,12 +301,12 @@ namespace DGtal
     static void optionsNormalEstimators( po::options_description& desc )
     {
       desc.add_options()
-	("estimator,e", po::value<std::string>()->default_value( "True" ), "the chosen normal estimator: True | VCM | II | Trivial" )
+	("estimator,e", po::value<std::string>()->default_value( "True" ), "the chosen normal estimator: True | VCM | II | Trivial | CTrivial" )
 	("R-radius,R", po::value<Scalar>()->default_value( 5 ), "the constant for parameter R in R(h)=R h^alpha (VCM)." )
 	("r-radius,r", po::value<Scalar>()->default_value( 3 ), "the constant for parameter r in r(h)=r h^alpha (VCM,II,Trivial)." )
 	("kernel,k", po::value<std::string>()->default_value( "hat" ), "the function chi_r, either hat or ball." )
 	("alpha", po::value<Scalar>()->default_value( 0.0 ), "the parameter alpha in r(h)=r h^alpha (VCM)." )
-	("trivial-radius,t", po::value<Scalar>()->default_value( 3 ), "the parameter t defining the radius for the Trivial estimator. Also used for reorienting the VCM." )
+	("trivial-ring,t", po::value<Scalar>()->default_value( 3 ), "the parameter t defining the radius for the convolved Trivial estimator. It corresponds to a discrete distance on the surface graph and is not related to the digitization gridstep.Used for reorienting normal directions." )
 	("embedding,E", po::value<int>()->default_value( 0 ), "the surfel -> point embedding for VCM estimator: 0: Pointels, 1: InnerSpel, 2: OuterSpel." );
     }
 
@@ -650,6 +650,48 @@ namespace DGtal
 	}
       return result;
     }
+
+    /// Given a digital surface \a surface, a sequence of \a surfels,
+    /// and some parameters \a vm, returns the normal Voronoi
+    /// Covariance Measure (VCM) estimation at the specified surfels,
+    /// in the same order.
+    ///
+    /// @param[in] vm the options sets in the variable map (arguments
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsNormalEstimators (trivial-ring)
+    /// @param[in] surface the digital surface
+    /// @param[in] surfels the sequence of surfels at which we compute the normals
+    ///
+    /// @return the vector containing the estimated normals, in the
+    /// same order as \a surfels.
+    static std::vector< RealVector >
+    computeConvolvedTrivialNormals( const po::variables_map&     vm,
+				    CountedPtr<Surface>          surface,
+				    const std::vector< Surfel >& surfels )
+    {
+      Scalar t = vm[ "trivial-ring" ].as<double>();
+      typedef ExactPredicateLpSeparableMetric<Space,2>              Metric;
+      typedef functors::HatFunction<Scalar>                         Functor;
+      typedef functors::ElementaryConvolutionNormalVectorEstimator
+	< Surfel, CanonicSCellEmbedder<KSpace> >                    SurfelFunctor;
+      typedef LocalEstimatorFromSurfelFunctorAdapter
+	< SurfaceContainer, Metric, SurfelFunctor, Functor>         NormalEstimator;
+      const Functor fct( 1.0, t );
+      const KSpace &  K = surface->container().space();
+      Metric    aMetric;
+      CanonicSCellEmbedder<KSpace> canonic_embedder( K );
+      std::vector< RealVector >    n_estimations;
+      SurfelFunctor                surfelFct( canonic_embedder, 1.0 );
+      NormalEstimator              estimator;
+      estimator.attach( *surface);
+      estimator.setParams( aMetric, surfelFct, fct, t );
+      estimator.init( 1.0, surfels.begin(), surfels.end());
+      estimator.eval( surfels.begin(), surfels.end(),
+		      std::back_inserter( n_estimations ) );
+      std::transform( n_estimations.cbegin(), n_estimations.cend(), n_estimations.begin(),
+		      [] ( RealVector v ) { return -v; } );
+      return n_estimations;
+    }
     
     /// Given a digital surface \a surface, a sequence of \a surfels,
     /// and some parameters \a vm, returns the normal Voronoi
@@ -675,7 +717,7 @@ namespace DGtal
       Scalar      h      = vm[ "gridstep" ].as<Scalar>();
       Scalar      R      = vm[ "R-radius" ].as<Scalar>();
       Scalar      r      = vm[ "r-radius" ].as<Scalar>();
-      Scalar      t      = vm[ "trivial-radius" ].as<Scalar>();
+      Scalar      t      = vm[ "trivial-ring" ].as<Scalar>();
       Scalar      alpha  = vm[ "alpha" ].as<Scalar>();
       int      embedding = vm[ "embedding" ].as<int>();
       // Adjust parameters according to gridstep if specified.
@@ -716,7 +758,7 @@ namespace DGtal
       return n_estimations;
     }
 
-    /// Given a digital surface \a surface, a sequence of \a surfels,
+    /// Given a digital shape \a bimage, a sequence of \a surfels,
     /// and some parameters \a vm, returns the normal Integral
     /// Invariant (VCM) estimation at the specified surfels, in the
     /// same order.
@@ -724,8 +766,8 @@ namespace DGtal
     /// @param[in] vm the options sets in the variable map (arguments
     /// given to the program). Recognized parameters are given in \ref
     /// optionsNormalEstimators.
-    /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
-    /// @param[in] bimage the characteristic function of the shape as a binary image (inside is true, outside is false). 
+    /// @param[in] K the digital space where the shape lives.
+    /// @param[in] bimage the characteristic function of the shape as a binary image (inside is true, outside is false).
     /// @param[in] surfels the sequence of surfels at which we compute the normals
     ///
     /// @return the vector containing the estimated normals, in the
@@ -794,6 +836,13 @@ namespace DGtal
 	}
       else if ( estimator == "Trivial" )
 	return computeTrivialNormals( K, surfels );
+      else if ( estimator == "CTrivial" )
+	{
+	  if ( surface != 0 ) return computeConvolvedTrivialNormals( vm, surface, surfels );
+	  trace.error() << "[EstimatorHelpers::computeNormals]"
+			<< " Error. Cannot estimate CTrivial normals if digital surface is not given."
+			<< std::endl;
+	}
       else if ( estimator == "VCM" )
 	{
 	  if ( surface != 0 ) return computeVCMNormals( vm, surface, surfels );
@@ -803,7 +852,18 @@ namespace DGtal
 	}
       else if ( estimator == "II" )
 	{
-	  if ( bimage != 0 ) return computeIINormals( vm, K, bimage, surfels );
+	  if ( bimage != 0 )
+	    {
+	      const Scalar               t = vm[ "trivial-ring" ].as<Scalar>();
+	      std::vector< RealVector > ii = computeIINormals( vm, K, bimage, surfels );
+	      if ( ( t >= 1.0 ) && ( surface != 0 ) )
+		{ // Forces realignment.
+		  std::vector< RealVector > cn =
+		    computeConvolvedTrivialNormals( vm, surface, surfels );
+		  orientVectors( cn, ii );
+		}
+	      return ii;
+	    }
 	  trace.error() << "[EstimatorHelpers::computeNormals]"
 			<< " Error. Cannot estimate II normals if characteristic function is not given."
 			<< std::endl;

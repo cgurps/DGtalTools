@@ -536,7 +536,7 @@ void chooseEstimator
   typedef TrueDigitalSurfaceLocalEstimator<KSpace, ImplicitShape, NormalFunctor> TrueEstimator;
   TrueEstimator true_estimator;
   true_estimator.attach( shape );
-  true_estimator.setParams( K, NormalFunctor(), 20, 0.1, 0.01 );
+  true_estimator.setParams( K, NormalFunctor(), 20, 0.0001, 0.5 );
   true_estimator.init( h, surface.begin(), surface.end() );
   if ( nameEstimator == "True" )
     {
@@ -544,7 +544,7 @@ void chooseEstimator
       typedef TrueDigitalSurfaceLocalEstimator<KSpace, ImplicitShape, NormalFunctor> Estimator;
       Estimator estimator;
       estimator.attach( shape );
-      estimator.setParams( K, NormalFunctor(), 20, 0.1, 0.01 );
+      estimator.setParams( K, NormalFunctor(), 20, 0.0001, 0.5 );
       estimator.init( h, surface.begin(), surface.end() );
       trace.endBlock();
       computeEstimation( vm, K, shape, surface, true_estimator, estimator );

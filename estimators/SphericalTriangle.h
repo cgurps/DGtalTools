@@ -81,10 +81,11 @@ namespace DGtal
     /// Default constructor. The object is invalid.
     SphericalTriangle( const RealVector& va, const RealVector& vb, const RealVector& vc,
 		       bool normalize = true )
-      : myA( normalize ? va.getNormalized() : va ),
-	myB( normalize ? vb.getNormalized() : vb ),
-	myC( normalize ? vc.getNormalized() : vc )
-    {}
+    {
+      setA( va, normalize );
+      setB( vb, normalize );
+      setC( vc, normalize );
+    }
     
     /**
      * Copy constructor.
@@ -113,8 +114,15 @@ namespace DGtal
     /// should be of unit length.
     void setA( const RealVector& va, bool normalize = true )
     {
-      myA = normalize ? va.getNormalized() : va;
+      myA = va;
+      if ( normalize )
+	{
+	  Scalar n = myA.norm();
+	  if ( fabs( n ) > 1e-8 ) myA /= n;
+	  else myA = RealVector::zero;
+	}
     }
+
     /// Sets the point B of the triangle.
     /// @param vb the new point B
     ///
@@ -122,7 +130,13 @@ namespace DGtal
     /// should be of unit length.
     void setB( const RealVector& vb, bool normalize = true )
     {
-      myB = normalize ? vb.getNormalized() : vb;
+      myB = vb;
+      if ( normalize )
+	{
+	  Scalar n = myB.norm();
+	  if ( fabs( n ) > 1e-8 ) myB /= n;
+	  else myB = RealVector::zero;
+	}
     }
     /// Sets the point C of the triangle.
     /// @param vc the new point C
@@ -131,7 +145,13 @@ namespace DGtal
     /// should be of unit length.
     void setC( const RealVector& vc, bool normalize = true )
     {
-      myC = normalize ? vc.getNormalized() : vc;
+      myC = vc;
+      if ( normalize )
+	{
+	  Scalar n = myC.norm();
+	  if ( fabs( n ) > 1e-8 ) myC /= n;
+	  else myC = RealVector::zero;
+	}
     }
 
     /// @return the polar triangle associated with this triangle.
@@ -153,10 +173,18 @@ namespace DGtal
     /// @param[out] gamma the interior angle at vertex C.
     void interiorAngles( Scalar& alpha, Scalar& beta, Scalar& gamma ) const
     {
-      Self T = polarTriangle();
-      alpha  = acos( T.B().dot( T.C() ) );
-      beta   = acos( T.C().dot( T.A() ) );
-      gamma  = acos( T.A().dot( T.B() ) );
+      Self    T = polarTriangle();
+      if ( T.A() == RealVector::zero || T.B() == RealVector::zero || T.C() == RealVector::zero )
+	alpha = beta = gamma = 0.0;
+      else
+	{
+	  Scalar ca = std::max( -1.0, std::min( 1.0, T.B().dot( T.C() ) ) );
+	  Scalar cb = std::max( -1.0, std::min( 1.0, T.C().dot( T.A() ) ) );
+	  Scalar cc = std::max( -1.0, std::min( 1.0, T.A().dot( T.B() ) ) );
+	  alpha     = acos( ca );
+	  beta      = acos( cb );
+	  gamma     = acos( cc );
+	}
     }
 
     /// @return the (unsigned) area of the spherical triangle (below 2pi).
@@ -164,7 +192,7 @@ namespace DGtal
     {
       Scalar alpha, beta, gamma;
       interiorAngles( alpha, beta, gamma );
-      return 2.0*M_PI - alpha - beta - gamma;
+      return ( (alpha + beta + gamma) == 0.0 ) ? 0.0 : 2.0*M_PI - alpha - beta - gamma;
     }
 
     /// @return the (signed) area of the spherical triangle (below 2pi).
@@ -173,6 +201,7 @@ namespace DGtal
       Scalar     S = area();
       RealVector M = myA + myB + myC;
       RealVector X = ( myB - myA ).crossProduct( myC - myA );
+      if ( M.norm1() <= 1e-8 || X.norm1() <= 1e-8 ) return 0.0;
       return M.dot( X ) < 0.0 ? -S : S;
     }
     

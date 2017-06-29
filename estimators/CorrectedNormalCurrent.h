@@ -453,6 +453,13 @@ namespace DGtal
     {
       VertexRange     vtcs = theSurface->verticesAroundFace( face );
       const unsigned int n = vtcs.size();
+      if ( n < 3 )
+	{
+	  trace.warning() << "[CorrectedNormalCurrent::computeMu2]"
+			  << " Only " << n << " vertices around face "
+			  << theSurface->pivot( face ) << std::endl;
+	  return 0.0;
+	}
       // std::cout << n << std::endl;
       std::vector< RealVector > normals( n );
       for ( unsigned int i = 0; i < n; ++i )
@@ -460,7 +467,7 @@ namespace DGtal
       Scalar S = 0.0;
       for ( unsigned int i = 0; i <= n-3; ++i )
 	{
-	  SphericalTriangle<Space> ST( normals[ i ], normals[ i+2 ], normals[ i+1 ] );
+	  SphericalTriangle<Space> ST( normals[ 0 ], normals[ i+2 ], normals[ i+1 ] );
 	  S += ST.algebraicArea();
 	}
       return S;

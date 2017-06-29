@@ -191,6 +191,7 @@ int main( int argc, char** argv )
   // 	       << " Loo=" << istat.max() // Loo
   // 	       << std::endl;
 
+  auto quantity = vm[ "quantity" ].as<std::string>();
   auto view     = vm[ "view" ].as<std::string>();
   std::vector<double>     displayed_values;
   std::vector<double>     measured_values;
@@ -206,7 +207,9 @@ int main( int argc, char** argv )
     {
       trace.beginBlock( "Compute true curvature" );
       normals         = EH::computeTrueNormals   ( K, shape, h, surfels );
-      expected_values = EH::computeMeanCurvatures( K, shape, h, surfels );
+      expected_values = ( ( quantity == "H" ) || ( quantity == "Mu1" ) )
+	? EH::computeMeanCurvatures( K, shape, h, surfels )
+	: EH::computeGaussianCurvatures( K, shape, h, surfels );
       //expected_values = EH::computeGaussianCurvatures( K, shape, h, surfels );
       Statistic<double>   meanCurv;
       meanCurv.addValues( expected_values.begin(), expected_values.end() );
@@ -231,12 +234,12 @@ int main( int argc, char** argv )
       trace.info() << C << " m-ball-r = " << r << "(continuous)"
 		   << " " << (r/h) << " (discrete)" << std::endl;
       double              area = 0.0;
+      double              intG = 0.0;
       std::vector<double> mu0( surfels.size() );
       std::vector<double> mu1( surfels.size() );
       std::vector<double> mu2( surfels.size() );
       unsigned int        i = 0;
       unsigned int        j = surfels.size();
-      std::string  quantity = vm[ "quantity" ].as<std::string>();
       bool       mu0_needed = false;
       bool       mu1_needed = false;
       bool       mu2_needed = false;
@@ -256,6 +259,8 @@ int main( int argc, char** argv )
 	  if ( mu1_needed ) mu1[ i ] = C.mu1Ball( v, r );
 	  if ( mu2_needed ) mu2[ i ] = C.mu2Ball( v, r );
 	}
+      // Computing total Gauss curvature.
+      for ( auto f : surface->allFaces() ) intG += C.mu2( f );
       if ( quantity == "Mu0" ) measured_values = mu0;
       else if ( quantity == "Mu1" ) measured_values = mu1;
       else if ( quantity == "Mu2" ) measured_values = mu2;
@@ -274,7 +279,8 @@ int main( int argc, char** argv )
       Statistic<double>   meanCurv;
       for ( i = 0; i < j; ++i ) meanCurv.addValue( measured_values[ i ] );
       meanCurv.terminate();
-      trace.info() << "- area = " << area << std::endl;
+      trace.info() << "- area    = " << area << std::endl;
+      trace.info() << "- total G = " << intG << std::endl;
       trace.info() << "- mean curv: avg = " << meanCurv.mean() << std::endl;
       trace.info() << "- mean curv: min = " << meanCurv.min() << std::endl;
       trace.info() << "- mean curv: max = " << meanCurv.max() << std::endl;
