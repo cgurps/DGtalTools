@@ -72,6 +72,7 @@
 #include "DGtal/geometry/surfaces/estimation/VoronoiCovarianceMeasureOnDigitalSurface.h"
 #include "DGtal/geometry/surfaces/estimation/VCMDigitalSurfaceLocalEstimator.h"
 #include "DGtal/geometry/surfaces/estimation/IIGeometricFunctors.h"
+#include "DGtal/geometry/surfaces/estimation/IntegralInvariantVolumeEstimator.h"
 #include "DGtal/geometry/surfaces/estimation/IntegralInvariantCovarianceEstimator.h"
 #include "DGtal/io/readers/GenericReader.h"
 #ifdef WITH_VISU3D_QGLVIEWER
@@ -676,6 +677,7 @@ namespace DGtal
 	< Surfel, CanonicSCellEmbedder<KSpace> >                    SurfelFunctor;
       typedef LocalEstimatorFromSurfelFunctorAdapter
 	< SurfaceContainer, Metric, SurfelFunctor, Functor>         NormalEstimator;
+      trace.info() << " CTrivial normal t=" << t << " (discrete)" << std::endl;
       const Functor fct( 1.0, t );
       const KSpace &  K = surface->container().space();
       Metric    aMetric;
@@ -721,11 +723,17 @@ namespace DGtal
       Scalar      alpha  = vm[ "alpha" ].as<Scalar>();
       int      embedding = vm[ "embedding" ].as<int>();
       // Adjust parameters according to gridstep if specified.
-      if ( alpha != 0.0 ) R *= pow( h, alpha-1.0 );
-      if ( alpha != 0.0 ) r *= pow( h, alpha-1.0 );
+      if ( alpha != 1.0 ) R *= pow( h, alpha-1.0 );
+      if ( alpha != 1.0 ) r *= pow( h, alpha-1.0 );
       Surfel2PointEmbedding embType = embedding == 0 ? Pointels :
                                       embedding == 1 ? InnerSpel : OuterSpel;
-      trace.info() << "- R=" << R << " r=" << r << " t=" << t << std::endl;
+      trace.info() << "- VCM normal kernel=" << kernel << " emb=" << embedding
+		   << " alpha=" << alpha << std::endl;
+      trace.info() << "- VCM normal r=" << (r*h)  << " (continuous) "
+		   << r << " (discrete)" << std::endl;
+      trace.info() << "- VCM normal R=" << (R*h)  << " (continuous) "
+		   << R << " (discrete)" << std::endl;
+      trace.info() << "- VCM normal t=" << t << " (discrete)" << std::endl;
       if ( kernel == "hat" ) {
 	typedef functors::HatPointFunction<Point,Scalar>             KernelFunction;
 	typedef VoronoiCovarianceMeasureOnDigitalSurface
@@ -788,9 +796,14 @@ namespace DGtal
       Scalar h     = vm[ "gridstep" ].as<Scalar>();
       Scalar r     = vm[ "r-radius" ].as<Scalar>();
       Scalar alpha = vm[ "alpha"    ].as<Scalar>();
-      if ( alpha != 0.0 ) r *= pow( h, alpha-1.0 );
-      trace.info() << " r=" << r << std::endl;
-      IINormalEstimator ii_estimator( K, *bimage );
+      if ( alpha != 1.0 ) r *= pow( h, alpha-1.0 );
+      trace.info() << " II normal alpha=" << alpha << std::endl;
+      trace.info() << " II normal r=" << (r*h)  << " (continuous) "
+		   << r << " (discrete)" << std::endl;
+      IINormalFunctor     functor;
+      functor.init( h, r*h );
+      IINormalEstimator   ii_estimator( functor );
+      ii_estimator.attach( K, *bimage );
       ii_estimator.setParams( r );
       ii_estimator.init( h, surfels.begin(), surfels.end() );
       ii_estimator.eval( surfels.begin(), surfels.end(),
@@ -876,7 +889,99 @@ namespace DGtal
 	}
       return std::vector< RealVector >();
     }
-      
+
+
+    /// Given a digital shape \a bimage, a sequence of \a surfels,
+    /// and some parameters \a vm, returns the mean curvature Integral
+    /// Invariant (VCM) estimation at the specified surfels, in the
+    /// same order.
+    ///
+    /// @param[in] vm the options sets in the variable map (arguments
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsNormalEstimators.
+    /// @param[in] K the digital space where the shape lives.
+    /// @param[in] bimage the characteristic function of the shape as a binary image (inside is true, outside is false).
+    /// @param[in] surfels the sequence of surfels at which we compute the normals
+    ///
+    /// @return the vector containing the estimated mean curvatures, in the
+    /// same order as \a surfels.
+    ///
+    /// @note It is better to have surfels in a specific order, as
+    /// given for instance by computeDepthFirstSurfelRange.
+    static std::vector< Scalar >
+    computeIIMeanCurvatures( const po::variables_map&     vm,
+			     const KSpace&                K,
+			     CountedPtr<BinaryImage>      bimage,
+			     const std::vector< Surfel >& surfels )
+    {
+      typedef functors::IIMeanCurvature3DFunctor<Space> IIMeanCurvFunctor;
+      typedef IntegralInvariantVolumeEstimator
+	<KSpace, BinaryImage, IIMeanCurvFunctor>        IIMeanCurvEstimator;
+      std::vector< Scalar > mc_estimations;
+      Scalar h     = vm[ "gridstep" ].as<Scalar>();
+      Scalar r     = vm[ "r-radius" ].as<Scalar>();
+      Scalar alpha = vm[ "alpha"    ].as<Scalar>();
+      if ( alpha != 1.0 ) r *= pow( h, alpha-1.0 );
+      trace.info() << " II Mean curvature alpha=" << alpha << std::endl;
+      trace.info() << " II Mean curvature r=" << (r*h)  << " (continuous) "
+		   << r << " (discrete)" << std::endl;
+      IIMeanCurvFunctor   functor;
+      functor.init( h, r*h );
+      IIMeanCurvEstimator ii_estimator( functor );
+      ii_estimator.attach( K, *bimage );
+      ii_estimator.setParams( r );
+      ii_estimator.init( h, surfels.begin(), surfels.end() );
+      ii_estimator.eval( surfels.begin(), surfels.end(),
+			 std::back_inserter( mc_estimations ) );
+      return mc_estimations;
+    }
+    
+    /// Given a digital shape \a bimage, a sequence of \a surfels,
+    /// and some parameters \a vm, returns the gaussian curvature Integral
+    /// Invariant (VCM) estimation at the specified surfels, in the
+    /// same order.
+    ///
+    /// @param[in] vm the options sets in the variable map (arguments
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsNormalEstimators.
+    /// @param[in] K the digital space where the shape lives.
+    /// @param[in] bimage the characteristic function of the shape as a binary image (inside is true, outside is false).
+    /// @param[in] surfels the sequence of surfels at which we compute the normals
+    ///
+    /// @return the vector containing the estimated gaussian curvatures, in the
+    /// same order as \a surfels.
+    ///
+    /// @note It is better to have surfels in a specific order, as
+    /// given for instance by computeDepthFirstSurfelRange.
+    static std::vector< Scalar >
+    computeIIGaussianCurvatures( const po::variables_map&     vm,
+				 const KSpace&                K,
+				 CountedPtr<BinaryImage>      bimage,
+				 const std::vector< Surfel >& surfels )
+    {
+      typedef functors::IIGaussianCurvature3DFunctor<Space> IIGaussianCurvFunctor;
+      typedef IntegralInvariantCovarianceEstimator
+	<KSpace, BinaryImage, IIGaussianCurvFunctor>        IIGaussianCurvEstimator;
+      std::vector< Scalar > mc_estimations;
+      Scalar h     = vm[ "gridstep" ].as<Scalar>();
+      Scalar r     = vm[ "r-radius" ].as<Scalar>();
+      Scalar alpha = vm[ "alpha"    ].as<Scalar>();
+      if ( alpha != 1.0 ) r *= pow( h, alpha-1.0 );
+      trace.info() << " II Gauss curvature alpha=" << alpha << std::endl;
+      trace.info() << " II Gauss curvature r=" << (r*h) << " (continuous) "
+		   << r << " (discrete)" << std::endl;
+      IIGaussianCurvFunctor   functor;
+      functor.init( h, r*h );
+      IIGaussianCurvEstimator ii_estimator( functor );
+      ii_estimator.attach( K, *bimage );
+      ii_estimator.setParams( r );
+      ii_estimator.init( h, surfels.begin(), surfels.end() );
+      ii_estimator.eval( surfels.begin(), surfels.end(),
+			 std::back_inserter( mc_estimations ) );
+      return mc_estimations;
+    }
+    
+    
     /// Orient \a v so that it points in the same direction as \a
     /// ref_v (scalar product is then non-negative afterwards).
     ///

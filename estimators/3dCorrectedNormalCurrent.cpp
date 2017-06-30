@@ -211,12 +211,28 @@ int main( int argc, char** argv )
 	? EH::computeMeanCurvatures( K, shape, h, surfels )
 	: EH::computeGaussianCurvatures( K, shape, h, surfels );
       //expected_values = EH::computeGaussianCurvatures( K, shape, h, surfels );
-      Statistic<double>   meanCurv;
-      meanCurv.addValues( expected_values.begin(), expected_values.end() );
-      meanCurv.terminate();
-      trace.info() << "- truth mean curv: avg = " << meanCurv.mean() << std::endl;
-      trace.info() << "- truth curv: min = " << meanCurv.min() << std::endl;
-      trace.info() << "- truth curv: max = " << meanCurv.max() << std::endl;
+      Statistic<double>   curv;
+      curv.addValues( expected_values.begin(), expected_values.end() );
+      curv.terminate();
+      trace.info() << "- truth curv: avg = " << curv.mean() << std::endl;
+      trace.info() << "- truth curv: min = " << curv.min() << std::endl;
+      trace.info() << "- truth curv: max = " << curv.max() << std::endl;
+      trace.endBlock();
+    }
+  if ( view == "IICurvature" )
+    {
+      trace.beginBlock( "Compute II curvature estimations" );
+      normals         = EH::computeIINormals( vm, K, bimage, surfels );
+      measured_values = ( ( quantity == "H" ) || ( quantity == "Mu1" ) )
+	? EH::computeIIMeanCurvatures    ( vm, K, bimage, surfels )
+	: EH::computeIIGaussianCurvatures( vm, K, bimage, surfels );
+      Statistic<double>   curv;
+      for ( unsigned int i = 0; i < measured_values.size(); ++i )
+	curv.addValue( measured_values[ i ] );
+      curv.terminate();
+      trace.info() << "- curv: avg = " << curv.mean() << std::endl;
+      trace.info() << "- curv: min = " << curv.min() << std::endl;
+      trace.info() << "- curv: max = " << curv.max() << std::endl;
       trace.endBlock();
     }
   if ( view == "Measure" || view == "Error" )
@@ -276,14 +292,14 @@ int main( int argc, char** argv )
 	  std::transform( mu0.cbegin(), mu0.cend(), mu2.cbegin(), measured_values.begin(),
 			  [] ( double m0, double m2 ) { return m2 / m0; } );
 	}
-      Statistic<double>   meanCurv;
-      for ( i = 0; i < j; ++i ) meanCurv.addValue( measured_values[ i ] );
-      meanCurv.terminate();
-      trace.info() << "- area    = " << area << std::endl;
-      trace.info() << "- total G = " << intG << std::endl;
-      trace.info() << "- mean curv: avg = " << meanCurv.mean() << std::endl;
-      trace.info() << "- mean curv: min = " << meanCurv.min() << std::endl;
-      trace.info() << "- mean curv: max = " << meanCurv.max() << std::endl;
+      Statistic<double>   curv;
+      for ( i = 0; i < j; ++i ) curv.addValue( measured_values[ i ] );
+      curv.terminate();
+      trace.info() << "- area      = " << area << std::endl;
+      trace.info() << "- total G   = " << intG << std::endl;
+      trace.info() << "- curv: avg = " << curv.mean() << std::endl;
+      trace.info() << "- curv: min = " << curv.min() << std::endl;
+      trace.info() << "- curv: max = " << curv.max() << std::endl;
       trace.endBlock();
     }
 
@@ -297,7 +313,7 @@ int main( int argc, char** argv )
   trace.info() << "#evalues=" << expected_values.size() << std::endl;
   MyViewever3D viewer( K );
   viewer.show();
-  if ( view == "Measure" )
+  if ( ( view == "Measure" ) || ( view == "IICurvature" ) )
     displayed_values = measured_values;
   else if ( view == "Truth" )
     displayed_values = expected_values;
