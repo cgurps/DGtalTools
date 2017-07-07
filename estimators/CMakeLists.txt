@@ -10,6 +10,7 @@ SET(DGTAL_TOOLS_SRC
   curvatureScaleSpaceBCC
   eulerCharacteristic
   3dCorrectedNormalCurrent
+  3dFastCorrectedNormalCurrent
 )
 
 if ( WITH_VISU3D_QGLVIEWER )

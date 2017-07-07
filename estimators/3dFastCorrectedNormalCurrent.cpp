@@ -14,7 +14,7 @@
  *
  **/
 /**
- * @file 3dCorrectedNormalCurrent.cpp
+ * @file 3dFastCorrectedNormalCurrent.cpp
  * @ingroup surfaceTools
  * @author Jacques-Olivier Lachaud (\c jacques-olivier.lachaud@univ-savoie.fr )
  * Laboratory of Mathematics (CNRS, UMR 5127), University of Savoie, France
@@ -36,7 +36,7 @@
 #include "DGtal/helpers/StdDefs.h"
 
 #include "EstimatorHelpers.h"
-#include "CorrectedNormalCurrent.h"
+#include "FastCorrectedNormalCurrent.h"
 
 // // Integral Invariant includes
 // #include "DGtal/geometry/surfaces/estimation/IIGeometricFunctors.h"
@@ -51,11 +51,11 @@ using namespace DGtal;
 using namespace functors;
 
 /**
- @page Doc3DCorrectedNormalCurrent 3dCorrectedNormalCurrent
+ @page Doc3DCorrectedNormalCurrent 3dFastCorrectedNormalCurrent
 
  @brief  Computes and visualizes the 3d corrected normal current of digital surfaces.
 
- @b Usage:  3dCorrectedNormalCurrent -i file.vol
+ @b Usage:  3dFastCorrectedNormalCurrent -i file.vol
 
  @b Allowed @b options @b are:
 
@@ -66,7 +66,7 @@ using namespace functors;
 
  @b Example:
  @see
- @ref 3dCorrectedNormalCurrent.cpp
+ @ref 3dFastCorrectedNormalCurrent.cpp
  @ref Doc3DCorrectedNormalCurrent
  */
 
@@ -98,7 +98,10 @@ int main( int argc, char** argv )
   typedef EH::RealVector                  RealVector;
   typedef EH::BinaryImage                 BinaryImage;
   typedef EH::ImplicitShape               ImplicitShape;
-  typedef CorrectedNormalCurrent<Surface> Current;
+  typedef EH::SurfaceContainer            SurfaceContainer;
+  typedef FastCorrectedNormalCurrent<SurfaceContainer> Current;
+  typedef Current::Vertex                 Vertex;
+  
   // parse command line ----------------------------------------------
   po::options_description general_opt( "Allowed options are" );
   general_opt.add_options()
@@ -133,8 +136,8 @@ int main( int argc, char** argv )
       trace.info()<< "Builds the 3d corrected normal currents" <<std::endl
                   << general_opt << "\n"
                   << "Basic usage: "<<std::endl
-                  << "\t 3dCorrectedNormalCurrent -p \"3x^2+5y^2+7z^2-1\" "<<std::endl
-                  << "\t 3dCorrectedNormalCurrent -i \"file.vol\" "<<std::endl
+                  << "\t 3dFastCorrectedNormalCurrent -p \"3x^2+5y^2+7z^2-1\" "<<std::endl
+                  << "\t 3dFastCorrectedNormalCurrent -i \"file.vol\" "<<std::endl
                   << std::endl;
       return 0;
     }
@@ -165,32 +168,11 @@ int main( int argc, char** argv )
   trace.info() << "- digital shape has " << nb << " voxels." << std::endl;
   auto surface = EH::makeDigitalSurface( K, bimage );
   trace.info() << "- surface component has " << surface->size()<< " surfels." << std::endl;
+  IndexedDigitalSurface< SurfaceContainer > fastDS;
+  bool fds_ok = fastDS.build( surface->container() );
+  trace.info() << "- Building IndexedDigitalSurface is "
+	       << (fds_ok ? "Success" : "Error" ) << std::endl;
   trace.endBlock();
-
-  // trace.beginBlock( "Compute true normal estimations" );
-  // auto h        = vm[ "gridstep" ].as<double>();
-  // auto surfels  = EH::computeDepthFirstSurfelRange( surface );
-  // auto tnormals = EH::computeTrueNormals( K, shape, surfels );
-  // trace.endBlock();
-  // trace.beginBlock( "Compute VCM normal estimations" );
-  // auto vnormals = EH::computeVCMNormals( vm, surface, surfels );
-  // auto vstat    = EH::measureAngleDeviation( tnormals, vnormals );
-  // trace.endBlock();
-  // trace.beginBlock( "Compute II normal estimations" );
-  // auto inormals = EH::computeIINormals( vm, K, bimage, surfels );
-  // EH::orientVectors( tnormals, inormals ); // necessary for II
-  // auto istat    = EH::measureAngleDeviation( tnormals, inormals );
-  // trace.endBlock();
-  // trace.info() << "- VCM h=" << h << " L1=" << vstat.mean() // L1
-  // 	       << " L2=" << sqrt( vstat.unbiasedVariance()
-  // 				  + vstat.mean()*vstat.mean() ) // L2
-  // 	       << " Loo=" << vstat.max() // Loo
-  // 	       << std::endl;
-  // trace.info() << "- II  h=" << h << " L1=" << istat.mean() // L1
-  // 	       << " L2=" << sqrt( istat.unbiasedVariance()
-  // 				  + istat.mean()*istat.mean() ) // L2
-  // 	       << " Loo=" << istat.max() // Loo
-  // 	       << std::endl;
 
   auto quantity = vm[ "quantity" ].as<std::string>();
   auto view     = vm[ "view" ].as<std::string>();
@@ -243,7 +225,7 @@ int main( int argc, char** argv )
       trace.endBlock();
       
       trace.beginBlock( "Computing corrected normal current" );
-      Current C( surface, h );
+      Current C( fastDS, h );
       C.setCorrectedNormals( surfels.begin(), surfels.end(), normals.begin() );
       const double mcoef = vm["m-coef"].as<double>();
       const double mpow  = vm["m-pow"].as<double>();
@@ -255,9 +237,9 @@ int main( int argc, char** argv )
       std::vector<double> mu0( surfels.size() );
       std::vector<double> mu1( surfels.size() );
       std::vector<double> mu2( surfels.size() );
-      unsigned int        i = 0;
-      unsigned int        j = surfels.size();
-      bool       mu0_needed = false;
+      Vertex              i = 0;
+      Vertex              j = surfels.size();
+      bool       mu0_needed = true;
       bool       mu1_needed = false;
       bool       mu2_needed = false;
       if ( quantity == "Mu0" ) mu0_needed = true;
@@ -265,19 +247,21 @@ int main( int argc, char** argv )
       if ( quantity == "Mu2" ) mu2_needed = true;
       if ( quantity == "H" )   mu0_needed = mu1_needed = true;
       if ( quantity == "G" )   mu0_needed = mu2_needed = true;
+      if ( mu0_needed ) C.computeAllMu0();
+      if ( mu1_needed ) C.computeAllMu1();
+      if ( mu2_needed ) C.computeAllMu2();
       //#pragma omp parallel for schedule(dynamic)
       for ( ; i < j; ++i )
 	{
 	  // std::cout << i << " / " << j << std::endl;
 	  trace.progressBar( i, j );
-	  auto v   = surfels[ i ];
-	  area    += C.mu0( v );
-	  if ( mu0_needed ) mu0[ i ] = C.mu0Ball( v, r );
-	  if ( mu1_needed ) mu1[ i ] = C.mu1Ball( v, r );
-	  if ( mu2_needed ) mu2[ i ] = C.mu2Ball( v, r );
+	  area    += C.mu0( i );
+	  if ( mu0_needed ) mu0[ i ] = C.mu0Ball( i, r );
+	  if ( mu1_needed ) mu1[ i ] = C.mu1Ball( i, r );
+	  if ( mu2_needed ) mu2[ i ] = C.mu2Ball( i, r );
 	}
       // Computing total Gauss curvature.
-      for ( auto f : surface->allFaces() ) intG += C.mu2( f );
+      for ( auto f : fastDS.allFaces() ) intG += C.mu2( f );
       if ( quantity == "Mu0" ) measured_values = mu0;
       else if ( quantity == "Mu1" ) measured_values = mu1;
       else if ( quantity == "Mu2" ) measured_values = mu2;
