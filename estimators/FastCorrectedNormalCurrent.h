@@ -124,9 +124,13 @@ namespace DGtal
       : theSurface( surface )
     {
       setParams( h );
+      trace.info() << "computeTrivialNormals" << std::endl;
       computeTrivialNormals();
+      trace.info() << "setCorrectedNormals" << std::endl;
       setCorrectedNormals( myTrivialNormals );
+      trace.info() << "computeCellCentroids" << std::endl;
       computeCellCentroids();
+      trace.info() << "...done" << std::endl;
     }
   
     /**
@@ -246,7 +250,7 @@ namespace DGtal
     void setCorrectedNormals( SurfelIterator itS, SurfelIterator itSEnd,
 			      RealVectorIterator itRV )
     {
-      myCorrectedNormals.clear();
+      myCorrectedNormals.resize( theSurface->nbVertices() );
       for ( ; itS != itSEnd; ++itS )
 	{
 	  const Vertex v = theSurface->getVertex( *itS );
@@ -258,24 +262,81 @@ namespace DGtal
 	}
     }
 
+    
     /// Computes all measures mu0 per vertex.
     void computeAllMu0()
     {
+      myMu0.resize( theSurface->nbVertices() );
       auto vtcs = theSurface->allVertices();
       for ( auto v : vtcs ) myMu0[ v ] = computeMu0( v );
     }
     /// Computes all measures mu1 per arc.
     void computeAllMu1()
     {
+      myMu1.resize( theSurface->nbArcs() );
       auto arcs = theSurface->allArcs();
       for ( auto a : arcs ) myMu1[ a ] = computeMu1( a );
     }
     /// Computes all measures mu2 per face.
     void computeAllMu2()
     {
+      myMu2.resize( theSurface->nbFaces() );
       auto faces = theSurface->allFaces();
       for ( auto f : faces ) myMu2[ f ] = computeMu2( f );
     }
+    
+
+    // ----------------------- Indexed Digital Surface services ------------------------------------
+  public:
+
+    /// @param[in] v any vertex index.
+    /// @return the corresponding surfel.
+    const SCell& surfel( Vertex v ) const
+    {
+      return theSurface->surfel( v );
+    }
+
+    /// @param[in] a any arc (index).
+    /// @return the corresponding separator linel.
+    const SCell& linel( Arc a ) const
+    {
+      return theSurface->linel( a );
+    }
+
+    /// @param[in] f any face index.
+    /// @return the corresponding pivot pointel.
+    const SCell& pointel( Face f ) const
+    {
+      return theSurface->pointel( f );
+    }
+    
+    /// @param[in] aSurfel any surfel of the surface
+    ///
+    /// @return the vertex (ie an index) corresponding to this surfel,
+    /// or INVALID_FACE if it does not exist.
+    Vertex getVertex( const SCell& aSurfel ) const
+    {
+      return theSurface->getVertex( aSurfel );
+    }
+
+    /// @param[in] aLinel any linel that is a separator on the surface (orientation is important).
+    ///
+    /// @return the arc (ie an index) corresponding to this separator linel,
+    /// or INVALID_FACE if it does not exist.
+    Arc getArc( const SCell& aLinel ) const
+    {
+      return theSurface->getArc( aLinel );
+    }
+
+    /// @param[in] aPointel any pointel that is a pivot on the surface (orientation is positive).
+    ///
+    /// @return the face (ie an index) corresponding to this pivot pointel,
+    /// or INVALID_FACE if it does not exist.
+    Face getFace( const SCell& aPointel ) const
+    {
+      return theSurface->getFace( aPointel );
+    }
+
     
     // ----------------------- Measure services -------------------------------
   public:

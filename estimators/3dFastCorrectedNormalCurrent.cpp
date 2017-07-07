@@ -237,8 +237,6 @@ int main( int argc, char** argv )
       std::vector<double> mu0( surfels.size() );
       std::vector<double> mu1( surfels.size() );
       std::vector<double> mu2( surfels.size() );
-      Vertex              i = 0;
-      Vertex              j = surfels.size();
       bool       mu0_needed = true;
       bool       mu1_needed = false;
       bool       mu2_needed = false;
@@ -247,21 +245,33 @@ int main( int argc, char** argv )
       if ( quantity == "Mu2" ) mu2_needed = true;
       if ( quantity == "H" )   mu0_needed = mu1_needed = true;
       if ( quantity == "G" )   mu0_needed = mu2_needed = true;
+      trace.info() << "computeAllMu0" << std::endl;
       if ( mu0_needed ) C.computeAllMu0();
+      trace.info() << "computeAllMu1" << std::endl;
       if ( mu1_needed ) C.computeAllMu1();
+      trace.info() << "computeAllMu2" << std::endl;
       if ( mu2_needed ) C.computeAllMu2();
       //#pragma omp parallel for schedule(dynamic)
-      for ( ; i < j; ++i )
+      trace.info() << "compute measures" << std::endl;
+      Vertex              i = 0;
+      Vertex              j = surfels.size();
+      for ( auto aSurfel : surfels )
 	{
 	  // std::cout << i << " / " << j << std::endl;
 	  trace.progressBar( i, j );
-	  area    += C.mu0( i );
-	  if ( mu0_needed ) mu0[ i ] = C.mu0Ball( i, r );
-	  if ( mu1_needed ) mu1[ i ] = C.mu1Ball( i, r );
-	  if ( mu2_needed ) mu2[ i ] = C.mu2Ball( i, r );
+	  Vertex v = C.getVertex( aSurfel );
+	  area    += C.mu0( v );
+	  if ( mu0_needed ) mu0[ i ] = C.mu0Ball( v, r );
+	  if ( mu1_needed ) mu1[ i ] = C.mu1Ball( v, r );
+	  if ( mu2_needed ) mu2[ i ] = C.mu2Ball( v, r );
+	  ++i;
 	}
       // Computing total Gauss curvature.
-      for ( auto f : fastDS.allFaces() ) intG += C.mu2( f );
+      if ( mu2_needed )
+	{
+	  trace.info() << "compute total Gauss curvature" << std::endl;
+	  for ( auto f : fastDS.allFaces() ) intG += C.mu2( f );
+	}
       if ( quantity == "Mu0" ) measured_values = mu0;
       else if ( quantity == "Mu1" ) measured_values = mu1;
       else if ( quantity == "Mu2" ) measured_values = mu2;
