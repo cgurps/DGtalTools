@@ -118,12 +118,19 @@ namespace DGtal
        (i.e. using the plane defined by each surfel).
  
        @param surface the digital surface which defines the current.
+
        @param h the digitization gridstep of the surface.
+
+       @param crisp when 'false', measures on a ball are computed with
+       an estimation of the relative intersection with each cell (more
+       precise slower), otherwise the intersection is approximated
+       either by 0 or 1 (less accurate, 30% faster).
     */
-    FastCorrectedNormalCurrent( Alias<Surface> surface, Scalar h = 1.0 )
+    FastCorrectedNormalCurrent( Alias<Surface> surface,
+				Scalar h = 1.0, bool crisp = false )
       : theSurface( surface )
     {
-      setParams( h );
+      setParams( h, crisp );
       trace.info() << "computeTrivialNormals" << std::endl;
       computeTrivialNormals();
       trace.info() << "setCorrectedNormals" << std::endl;
@@ -146,10 +153,18 @@ namespace DGtal
      */
     FastCorrectedNormalCurrent & operator= ( const FastCorrectedNormalCurrent & other ) = default;
 
-    /// Sets the digitization grid step of the digital surface.
-    void setParams( Scalar h )
+    /// Sets the parameters.
+    ///
+    /// @param h the digitization gridstep of the surface.
+    ///
+    /// @param crisp when 'false', measures on a ball are computed with
+    /// an estimation of the relative intersection with each cell (more
+    /// precise slower), otherwise the intersection is approximated
+    /// either by 0 or 1 (less accurate, 30% faster).
+    void setParams( Scalar h, bool crisp = false )
     {
-      myH = h;
+      myH     = h;
+      myCrisp = crisp;
       myEmbedder.init( myH );
     }
     
@@ -370,6 +385,11 @@ namespace DGtal
       return relativeIntersection( p, r, space().unsigns( c ) );
     }
 
+    Scalar sCrispIntersection( RealPoint p, Scalar r, SCell c )
+    {
+      return crispIntersection( p, r, space().unsigns( c ) );
+    }
+
     /// Computes an approximation of the relative intersection of the
     /// ball of radius \a r and center \a p with the given cell. Cells
     /// are embedded naturally in the grid of step h.
@@ -395,6 +415,20 @@ namespace DGtal
       if      ( d_max <= r     ) return 1.0;
       else if ( r     <= d_min ) return 0.0;
       return ( r - d_min ) / ( d_max - d_min );
+    }
+
+    /// Computes an approximation of the crisp intersection of the
+    /// ball of radius \a r and center \a p with the given cell. Cells
+    /// are embedded naturally in the grid of step h.
+    ///
+    /// @return the crisp intersection as the scalar 0 (no
+    /// intersection) and 1 (intersection).
+    Scalar crispIntersection( RealPoint p, Scalar r, Cell c )
+    {
+      const KSpace & K = space();
+      RealPoint x = computeCentroid( c );
+      Scalar    d = ( x - p ).norm();
+      return d <= r ? 1.0 : 0.0;
     }
 
     /// \f$ \mu_0 \f$ Lipschitz-Killing measure. It corresponds to a
@@ -541,21 +575,27 @@ namespace DGtal
     Scalar mu0( RealPoint p, Scalar r, Vertex c )
     {
       SCell aSurfel = theSurface->surfel( c );
-      Scalar     ri = sRelativeIntersection( p, r, aSurfel );
+      Scalar     ri = myCrisp
+	? sCrispIntersection( p, r, aSurfel )
+	: sRelativeIntersection( p, r, aSurfel );
       return ri != 0.0 ? ri * mu0( c ) : 0.0;
     }
 
     Scalar mu1( RealPoint p, Scalar r, Arc a )
     {
       SCell aLinel = theSurface->linel( a ); // oriented 1-cell
-      Scalar    ri = sRelativeIntersection( p, r, aLinel );
+      Scalar    ri = myCrisp
+	? sCrispIntersection( p, r, aLinel )
+	: sRelativeIntersection( p, r, aLinel );
       return ri != 0.0 ? ri * mu1( a ) : 0.0;
     }
 
     Scalar mu2( RealPoint p, Scalar r, const Face& f )
     {
       SCell aPointel = theSurface->pointel( f ); 
-      Scalar      ri = sRelativeIntersection( p, r, aPointel );
+      Scalar      ri = myCrisp
+	? sCrispIntersection( p, r, aPointel )
+	: sRelativeIntersection( p, r, aPointel );
       return ri != 0.0 ? ri * mu2( f ) : 0.0;
     }
 
@@ -684,6 +724,8 @@ namespace DGtal
     CountedPtrOrPtr<Surface> theSurface;
     /// The digitization grid step.
     Scalar                   myH;
+    /// Specifies how intersection are computed.
+    bool                     myCrisp;
     /// The standard embedding with gridstep h.
     RegularPointEmbedder<Space> myEmbedder;
     /// The natural normal vector field.

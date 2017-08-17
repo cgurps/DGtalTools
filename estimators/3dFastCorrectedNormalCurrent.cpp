@@ -115,7 +115,8 @@ int main( int argc, char** argv )
   EH::optionsNoisyImage      ( general_opt );
   EH::optionsNormalEstimators( general_opt );
   general_opt.add_options()
-    ( "quantity,Q", po::value<std::string>()->default_value( "Mu1" ), "the quantity that is evaluated in Mu0|Mu1|Mu2|H|G, with H := Mu1/(2Mu0) and G := Mu2/Mu0" );
+    ( "quantity,Q", po::value<std::string>()->default_value( "Mu1" ), "the quantity that is evaluated in Mu0|Mu1|Mu2|H|G, with H := Mu1/(2Mu0) and G := Mu2/Mu0" )
+    ( "crisp,C", "when specified, when computing measures in a ball, do not approximate the relative intersection of cells with the ball but only consider if the cell centroid is in the ball (faster by 30%, but less accurate)." );
 #ifdef WITH_VISU3D_QGLVIEWER
   EH::optionsDisplayValues   ( general_opt );
   general_opt.add_options()
@@ -225,7 +226,7 @@ int main( int argc, char** argv )
       trace.endBlock();
       
       trace.beginBlock( "Computing corrected normal current" );
-      Current C( fastDS, h );
+      Current C( fastDS, h, vm.count( "crisp" ) );
       C.setCorrectedNormals( surfels.begin(), surfels.end(), normals.begin() );
       const double mcoef = vm["m-coef"].as<double>();
       const double mpow  = vm["m-pow"].as<double>();

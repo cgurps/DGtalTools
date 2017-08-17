@@ -45,7 +45,8 @@ void
 DGtal::FastCorrectedNormalCurrent<Surface>::  
 selfDisplay ( std::ostream & out ) const
 {
-  out << "[FastCorrectedNormalCurrent #S=" << theSurface->size() << "]";
+  out << "[FastCorrectedNormalCurrent #S=" << theSurface->size()
+      << " crisp mode=" << ( myCrisp ? "ON" : "OFF" ) << "]";
 }
 //-----------------------------------------------------------------------------
 template <typename Surface>
