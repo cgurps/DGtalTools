@@ -106,8 +106,8 @@ int main( int argc, char** argv )
   po::options_description general_opt( "Allowed options are" );
   general_opt.add_options()
     ( "help,h", "display this message" )
-    ( "m-coef", po::value<double>()->default_value( 1.0 ), "the coefficient k that defines the radius of the ball used in measures, that is r := k h^b" )
-    ( "m-pow", po::value<double>()->default_value( 1.0 ), "the coefficient b that defines the radius of the ball used in measures, that is r := k h^b" );
+    ( "m-coef", po::value<double>()->default_value( 3.0 ), "the coefficient k that defines the radius of the ball used in measures, that is r := k h^b" )
+    ( "m-pow", po::value<double>()->default_value( 0.5 ), "the coefficient b that defines the radius of the ball used in measures, that is r := k h^b" );
   
   EH::optionsImplicitShape   ( general_opt );
   EH::optionsDigitizedShape  ( general_opt );
@@ -120,12 +120,21 @@ int main( int argc, char** argv )
 #ifdef WITH_VISU3D_QGLVIEWER
   EH::optionsDisplayValues   ( general_opt );
   general_opt.add_options()
-    ( "view,V", po::value<std::string>()->default_value( "Measure" ), "the display mode in Measure|Truth|Error" );
+    ( "view,V", po::value<std::string>()->default_value( "Measure" ), "the display mode in Measure|Truth|IICurvature|Error" );
 #endif
   
   po::variables_map vm;
   bool parseOK = EH::args2vm( general_opt, argc, argv, vm );
   bool neededArgsGiven=true;
+
+  if ( vm.count( "polynomial-list" ) )
+    {
+      trace.info() << "List of predefined polynomials:" << std::endl;
+      auto L = EH::getPolynomialList();
+      for ( auto p : L ) {
+	trace.info() << "  " << p.first << " -> " << p.second << std::endl;
+      }
+    }
 
   if (parseOK && ( ! vm.count("polynomial") ) && ( ! vm.count( "input" ) ) ) {
     missingParam("--polynomial or --input");
@@ -137,12 +146,15 @@ int main( int argc, char** argv )
       trace.info()<< "Builds the 3d corrected normal currents" <<std::endl
                   << general_opt << "\n"
                   << "Basic usage: "<<std::endl
+		  << "\t 3dFastCorrectedNormalCurrent -e II -t 3 -r 3 -Q H --tics 1 --minValue -0.3 --maxValue 0.3 --polynomial-list -p goursat -g 0.5 -V Measure --m-coef 3 -N 0.2" << std::endl
                   << "\t 3dFastCorrectedNormalCurrent -p \"3x^2+5y^2+7z^2-1\" "<<std::endl
                   << "\t 3dFastCorrectedNormalCurrent -i \"file.vol\" "<<std::endl
+		  << "\t 3dFastCorrectedNormalCurrent -e II -t 3 -r 3 -Q H --tics 1 --minValue -0.3 --maxValue 0.3 -V Measure --m-coef 3  -i ~/Images/3d/vol/fandisk-128.vol -m 0 -M 255 -N 0.4 -g 0.25" << std::endl
+                  << "\t 3dFastCorrectedNormalCurrent --polynomial-list  // to get the list of predefined polynomials. "<<std::endl
                   << std::endl;
       return 0;
     }
-
+  
   // Digital space.
   KSpace                        K;
   unsigned int                 nb = 0;
@@ -153,21 +165,26 @@ int main( int argc, char** argv )
   if ( vm.count( "polynomial" ) )
     {
       shape        = EH::makeImplicitShape ( vm );
-      auto dshape  = EH::makeDigitizedShape( vm, shape, K );
+      auto dshape  = EH::makeImplicitDigitalShapeFromImplicitShape( vm, shape, K );
       auto size    = dshape->getDomain().upperBound() - dshape->getDomain().lowerBound();
       trace.info() << "- Domain size is " << ( size[ 0 ] + 1 )
 		   << " x " << ( size[ 1 ] + 1 )
 		   << " x " << ( size[ 2 ] + 1 ) << std::endl;
-      bimage       = EH::makeNoisyOrNotImage( vm, dshape );
+      bimage       = EH::makeNoisyOrNotBinaryImageFromImplicitDigitalShape( vm, dshape );
     }
   else if ( vm.count( "input" ) )
     {
-      bimage       = EH::makeImageFromVolFile( vm, K );
+      bimage       = EH::makeNoisyOrNotBinaryImageFromVolFile( vm, K );
     }
   std::for_each( bimage->cbegin(), bimage->cend(),
 		 [&nb] ( bool v ) { nb += v ? 1 : 0; } );
   trace.info() << "- digital shape has " << nb << " voxels." << std::endl;
-  auto surface = EH::makeDigitalSurface( K, bimage );
+  auto surface = EH::makeDigitalSurfaceFromBinaryImage( K, bimage );
+  if ( surface == 0 ) {
+      trace.info() << "- surface is empty (either empty or full volume). "
+		   << std::endl;
+      return 1;
+  }
   trace.info() << "- surface component has " << surface->size()<< " surfels." << std::endl;
   IndexedDigitalSurface< SurfaceContainer > fastDS;
   bool fds_ok = fastDS.build( surface->container() );
@@ -230,9 +247,9 @@ int main( int argc, char** argv )
       C.setCorrectedNormals( surfels.begin(), surfels.end(), normals.begin() );
       const double mcoef = vm["m-coef"].as<double>();
       const double mpow  = vm["m-pow"].as<double>();
-      const double r     = mcoef*pow( h, mpow );
-      trace.info() << C << " m-ball-r = " << r << "(continuous)"
-		   << " " << (r/h) << " (discrete)" << std::endl;
+      const double mr    = mcoef*pow( h, mpow );
+      trace.info() << C << " m-ball-r = " << mr << "(continuous)"
+		   << " " << (mr/h) << " (discrete)" << std::endl;
       double              area = 0.0;
       double              intG = 0.0;
       std::vector<double> mu0( surfels.size() );
@@ -262,9 +279,9 @@ int main( int argc, char** argv )
 	  trace.progressBar( i, j );
 	  Vertex v = C.getVertex( aSurfel );
 	  area    += C.mu0( v );
-	  if ( mu0_needed ) mu0[ i ] = C.mu0Ball( v, r );
-	  if ( mu1_needed ) mu1[ i ] = C.mu1Ball( v, r );
-	  if ( mu2_needed ) mu2[ i ] = C.mu2Ball( v, r );
+	  if ( mu0_needed ) mu0[ i ] = C.mu0Ball( v, mr );
+	  if ( mu1_needed ) mu1[ i ] = C.mu1Ball( v, mr );
+	  if ( mu2_needed ) mu2[ i ] = C.mu2Ball( v, mr );
 	  ++i;
 	}
       // Computing total Gauss curvature.

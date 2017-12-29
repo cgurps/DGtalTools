@@ -123,6 +123,15 @@ int main( int argc, char** argv )
   bool parseOK = EH::args2vm( general_opt, argc, argv, vm );
   bool neededArgsGiven=true;
 
+  if ( vm.count( "polynomial-list" ) )
+    {
+      trace.info() << "List of predefined polynomials:" << std::endl;
+      auto L = EH::getPolynomialList();
+      for ( auto p : L ) {
+	trace.info() << "  " << p.first << " -> " << p.second << std::endl;
+      }
+    }
+  
   if (parseOK && ( ! vm.count("polynomial") ) && ( ! vm.count( "input" ) ) ) {
     missingParam("--polynomial or --input");
     neededArgsGiven=false;
@@ -135,6 +144,7 @@ int main( int argc, char** argv )
                   << "Basic usage: "<<std::endl
                   << "\t 3dCorrectedNormalCurrent -p \"3x^2+5y^2+7z^2-1\" "<<std::endl
                   << "\t 3dCorrectedNormalCurrent -i \"file.vol\" "<<std::endl
+                  << "\t 3dCorrectedNormalCurrent --polynomial-list  // to get the list of predefined polynomials. "<<std::endl
                   << std::endl;
       return 0;
     }
@@ -149,21 +159,26 @@ int main( int argc, char** argv )
   if ( vm.count( "polynomial" ) )
     {
       shape        = EH::makeImplicitShape ( vm );
-      auto dshape  = EH::makeDigitizedShape( vm, shape, K );
+      auto dshape  = EH::makeImplicitDigitalShapeFromImplicitShape( vm, shape, K );
       auto size    = dshape->getDomain().upperBound() - dshape->getDomain().lowerBound();
       trace.info() << "- Domain size is " << ( size[ 0 ] + 1 )
 		   << " x " << ( size[ 1 ] + 1 )
 		   << " x " << ( size[ 2 ] + 1 ) << std::endl;
-      bimage       = EH::makeNoisyOrNotImage( vm, dshape );
+      bimage       = EH::makeNoisyOrNotBinaryImageFromImplicitDigitalShape( vm, dshape );
     }
   else if ( vm.count( "input" ) )
     {
-      bimage       = EH::makeImageFromVolFile( vm, K );
+      bimage       = EH::makeBinaryImageFromVolFile( vm, K );
     }
   std::for_each( bimage->cbegin(), bimage->cend(),
 		 [&nb] ( bool v ) { nb += v ? 1 : 0; } );
   trace.info() << "- digital shape has " << nb << " voxels." << std::endl;
-  auto surface = EH::makeDigitalSurface( K, bimage );
+  auto surface = EH::makeDigitalSurfaceFromBinaryImage( K, bimage );
+  if ( surface == 0 ) {
+      trace.info() << "- surface is empty (either empty or full volume). "
+		   << std::endl;
+      return 1;
+  }
   trace.info() << "- surface component has " << surface->size()<< " surfels." << std::endl;
   trace.endBlock();
 

@@ -270,7 +270,8 @@ namespace DGtal
     static void optionsImplicitShape( po::options_description& desc )
     {
       desc.add_options()
-	( "polynomial,p", po::value<std::string>(), "the implicit polynomial whose zero-level defines the shape of interest." );
+	( "polynomial,p", po::value<std::string>(), "the implicit polynomial whose zero-level defines the shape of interest." )
+	( "polynomial-list", "displays the list of predefined polynomials (names that you can use with '-p' options).");
     }
 
     /// Add options for implicit shape digitization.
@@ -306,7 +307,7 @@ namespace DGtal
 	("R-radius,R", po::value<Scalar>()->default_value( 5 ), "the constant for parameter R in R(h)=R h^alpha (VCM)." )
 	("r-radius,r", po::value<Scalar>()->default_value( 3 ), "the constant for parameter r in r(h)=r h^alpha (VCM,II,Trivial)." )
 	("kernel,k", po::value<std::string>()->default_value( "hat" ), "the function chi_r, either hat or ball." )
-	("alpha", po::value<Scalar>()->default_value( 0.0 ), "the parameter alpha in r(h)=r h^alpha (VCM)." )
+	("alpha", po::value<Scalar>()->default_value( 0.5 ), "the parameter alpha in r(h)=r h^alpha (VCM)." )
 	("trivial-ring,t", po::value<Scalar>()->default_value( 3 ), "the parameter t defining the radius for the convolved Trivial estimator. It corresponds to a discrete distance on the surface graph and is not related to the digitization gridstep.Used for reorienting normal directions." )
 	("embedding,E", po::value<int>()->default_value( 0 ), "the surfel -> point embedding for VCM estimator: 0: Pointels, 1: InnerSpel, 2: OuterSpel." );
     }
@@ -324,21 +325,15 @@ namespace DGtal
     }
 #endif
     
-    // ------------------- Shapes related functions --------------------------------
+    // ------------------- Shapes related functions -----------------------------
     
-    /// Builds a 3D implicit shape from argument "-polynomial".
+    /// Returns a map associating a name and a polynomial,
+    /// e.g. "sphere1", "x^2+y^2+z^2-1".
     ///
-    /// @param[in] vm the options sets in the variable map (arguments
-    /// given to the program). Recognized parameters are given in \ref
-    /// optionsImplicitShape.
-    ///
-    /// @return a smart pointer on the created implicit shape.
-    static CountedPtr<ImplicitShape>
-    makeImplicitShape( const po::variables_map& vm )
+    /// @return the map associating a polynomial to a name.
+    static std::map< std::string, std::string >
+    getPolynomialList()
     {
-      typedef MPolynomialReader< Space::dimension, Scalar> Polynomial3Reader;
-      std::string poly_str = vm[ "polynomial" ].as<std::string>();
-      // Recognizes some strings:
       std::vector< std::pair< std::string, std::string > >
 	Ps = { { "sphere1", "x^2+y^2+z^2-1" },
 	       { "sphere9", "x^2+y^2+z^2-81" },
@@ -352,8 +347,27 @@ namespace DGtal
 	       { "diabolo", "x^2-(y^2+z^2)^2" },
 	       { "heart",   "-1*(x^2+2.25*y^2+z^2-1)^3+x^2*z^3+0.1125*y^2*z^3" },
 	       { "crixxi",  "-0.9*(y^2+z^2-1)^2-(x^2+y^2-1)^3" } };
+      std::map< std::string, std::string > L;
       for ( auto p : Ps )
-	if ( poly_str == p.first ) poly_str = p.second;
+	L[ p.first ] = p.second;
+      return L;
+    }
+
+    /// Builds a 3D implicit shape from argument "-polynomial".
+    ///
+    /// @param[in] vm the options sets in the variable map (arguments
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsImplicitShape.
+    ///
+    /// @return a smart pointer on the created implicit shape.
+    static CountedPtr<ImplicitShape>
+    makeImplicitShape( const po::variables_map& vm )
+    {
+      typedef MPolynomialReader< Space::dimension, Scalar> Polynomial3Reader;
+      std::string poly_str = vm[ "polynomial" ].as<std::string>();
+      // Recognizes some strings:
+      auto PL = getPolynomialList();
+      if ( PL[ poly_str ] != "" ) poly_str = PL[ poly_str ];
       PolynomialN poly;
       Polynomial3Reader reader;
       std::string::const_iterator iter
@@ -379,21 +393,22 @@ namespace DGtal
     /// @param[out] K the Khalimsky space whose domain encompasses the digital shape.
     /// @return a smart pointer on the created implicit digital shape.
     static CountedPtr<ImplicitDigitalShape>
-    makeDigitizedShape( const po::variables_map& vm,
-			CountedPtr<ImplicitShape> shape,
-			KSpace& K )
+    makeImplicitDigitalShapeFromImplicitShape
+    ( const po::variables_map& vm,
+      CountedPtr<ImplicitShape> shape,
+      KSpace& K )
     {
       Scalar min_x = vm[ "minAABB" ].as<Scalar>();
       Scalar max_x = vm[ "maxAABB" ].as<Scalar>();
       Scalar h     = vm[ "gridstep" ].as<Scalar>();
-      RealPoint p1( min_x, min_x, min_x );
-      RealPoint p2( max_x, max_x, max_x );
+      RealPoint p1( min_x - 5.0 * h, min_x - 5.0 * h, min_x - 5.0 * h );
+      RealPoint p2( max_x + 5.0 * h, max_x + 5.0 * h, max_x + 5.0 * h );
       CountedPtr<ImplicitDigitalShape> dshape( new ImplicitDigitalShape() );
       dshape->attach( *shape );
       dshape->init( p1, p2, h );
       Domain domain = dshape->getDomain();
       if ( ! K.init( domain.lowerBound(), domain.upperBound(), true ) )
-	trace.error() << "[EstimatorHelpers::makeImplicitDigitalShape]"
+	trace.error() << "[EstimatorHelpers::makeImplicitDigitalShapeFromImplicitShape]"
 		      << " Error building Khalimsky space K=" << K << std::endl;
       return dshape;
     }
@@ -403,7 +418,8 @@ namespace DGtal
     /// @param[in] dshape a smart pointer on an implicit digital shape.
     /// @return a smart pointer on a binary image that samples the digital shape.
     static CountedPtr<BinaryImage>
-    makeImage( CountedPtr<ImplicitDigitalShape> dshape )
+    makeBinaryImageFromImplicitDigitalShape
+    ( CountedPtr<ImplicitDigitalShape> dshape )
     {
       const Domain shapeDomain    = dshape->getDomain();
       CountedPtr<BinaryImage> img ( new BinaryImage( shapeDomain ) );
@@ -425,12 +441,38 @@ namespace DGtal
     /// @return a smart pointer on a binary image that samples the
     /// digital shape with added noise.
     static CountedPtr<BinaryImage>
-    makeNoisyImage( CountedPtr<ImplicitDigitalShape> dshape, Scalar noiseLevel )
+    makeNoisyBinaryImageFromImplicitDigitalShape
+    ( CountedPtr<ImplicitDigitalShape> dshape,
+      Scalar noiseLevel )
     {
       typedef KanungoNoise< ImplicitDigitalShape, Domain > KanungoPredicate;
       const Domain shapeDomain    = dshape->getDomain();
       CountedPtr<BinaryImage> img ( new BinaryImage( shapeDomain ) );
       KanungoPredicate noisy_dshape( *dshape, shapeDomain, noiseLevel );
+      std::transform( shapeDomain.begin(), shapeDomain.end(),
+		      img->begin(),
+		      [&noisy_dshape] ( const Point& p ) { return noisy_dshape(p); } );
+      return img;
+    }
+
+    /// Adds Kanungo noise to a binary image.
+    ///
+    /// @param[in] bimage a smart pointer on a binary image.
+    ///
+    /// @param[in] noiseLevel the parameter that tunes the amount of
+    /// Kanungo noise (0.0 is none, 0.5 is quite a lot, 1.0 means
+    /// random image).
+    ///
+    /// @return a smart pointer on the noisified binary image.
+    static CountedPtr<BinaryImage>
+    makeNoisyBinaryImageFromBinaryImage
+    ( CountedPtr<BinaryImage> bimage,
+      Scalar noiseLevel )
+    {
+      typedef KanungoNoise< BinaryImage, Domain > KanungoPredicate;
+      const Domain shapeDomain    = bimage->domain();
+      CountedPtr<BinaryImage> img ( new BinaryImage( shapeDomain ) );
+      KanungoPredicate noisy_dshape( *bimage, shapeDomain, noiseLevel );
       std::transform( shapeDomain.begin(), shapeDomain.end(),
 		      img->begin(),
 		      [&noisy_dshape] ( const Point& p ) { return noisy_dshape(p); } );
@@ -450,19 +492,33 @@ namespace DGtal
     /// @return a smart pointer on a binary image that samples the
     /// digital shape with added noise.
     static CountedPtr<BinaryImage>
-    makeNoisyOrNotImage( const po::variables_map& vm,
-			 CountedPtr<ImplicitDigitalShape> dshape )
+    makeNoisyOrNotBinaryImageFromImplicitDigitalShape
+    ( const po::variables_map& vm,
+      CountedPtr<ImplicitDigitalShape> dshape )
     {
       Scalar noiseLevel = vm[ "noise" ].as<Scalar>();
       if ( noiseLevel == 0.0 )
-	return makeImage( dshape );
+	return makeBinaryImageFromImplicitDigitalShape( dshape );
       else
-	return makeNoisyImage( dshape, noiseLevel );
+	return makeNoisyBinaryImageFromImplicitDigitalShape( dshape, noiseLevel );
     }
 
+    /// Loads a vol file (specified with option --input) and returns
+    /// the corresponding binary image.
+    ///
+    /// @param[in] vm the options sets in the variable map (arguments
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsNoisyImage.
+    ///
+    /// @param[out] outputs the Khalimsky space whose domain contains
+    /// the loaded vol file.
+    ///
+    /// @return a smart pointer on a binary image that represents the
+    /// (thresholded) vol file.
     static CountedPtr<BinaryImage>
-    makeImageFromVolFile( const po::variables_map& vm,
-			  KSpace&                  K )
+    makeBinaryImageFromVolFile
+    ( const po::variables_map& vm,
+      KSpace&                  K )
     {
       string inputFilename = vm["input"].as<std::string>();
       int thresholdMin     = vm["thresholdMin"].as<int>();
@@ -472,7 +528,7 @@ namespace DGtal
       bool        space_ok = K.init( domain.lowerBound(), domain.upperBound(), true );
       if ( ! space_ok )
 	{
-	  trace.error() << "[EstimatorHelpers::makeImageFromVolFile]"
+	  trace.error() << "[EstimatorHelpers::makeBinaryImageFromVolFile]"
 			<< " error in space initialization." << std::endl;
 	  return CountedPtr<BinaryImage>( nullptr );
 	}
@@ -484,6 +540,50 @@ namespace DGtal
 		      [tImage] ( const Point& p ) { return tImage(p); } );
       return img;
     }
+
+    /// Loads a vol file (specified with option --input) and returns
+    /// the corresponding binary image.
+    ///
+    /// @param[in] vm the options sets in the variable map (arguments
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsNoisyImage.
+    ///
+    /// @param[out] outputs the Khalimsky space whose domain contains
+    /// the loaded vol file.
+    ///
+    /// @return a smart pointer on a binary image that represents the
+    /// (thresholded) vol file.
+    static CountedPtr<BinaryImage>
+    makeNoisyOrNotBinaryImageFromVolFile
+    ( const po::variables_map& vm,
+      KSpace&                  K )
+    {
+      Scalar noiseLevel = vm[ "noise" ].as<Scalar>();
+      if ( noiseLevel == 0.0 )
+	return makeBinaryImageFromVolFile( vm, K );
+      else {
+	KSpace tmp_K;
+	auto   tmp_bimage = makeBinaryImageFromVolFile( vm, tmp_K );
+	auto   tmp_domain = tmp_bimage->domain();
+	Domain ext_domain( tmp_domain.lowerBound() - Point::diagonal( 5 ),
+			   tmp_domain.upperBound() + Point::diagonal( 5 ) );
+	CountedPtr<BinaryImage> bimage ( new BinaryImage( ext_domain ) );
+	unsigned int nb0 = 0;
+	unsigned int nb1 = 0;
+	for ( auto  p : tmp_domain )
+	  if ( (*tmp_bimage)( p ) ) { bimage->setValue( p, true  ); nb1++; }
+	  else                      { bimage->setValue( p, false ); nb0++; }
+	trace.info() << "input image: nb0=" << nb0 << " nb1=" << nb1 << std::endl;
+	bool space_ok = K.init( ext_domain.lowerBound(),
+				ext_domain.upperBound(), true );
+	if ( ! space_ok )
+	  {
+	    trace.error() << "[EstimatorHelpers::makeNoisyOrNotBinaryImageFromVolFile]"
+			  << " error in space initialization." << std::endl;
+	  }
+	return makeNoisyBinaryImageFromBinaryImage( bimage, noiseLevel );
+      }
+    }
     
     /// Builds a digital surface from a space \a K and a binary image \a bimage.
     ///
@@ -494,7 +594,9 @@ namespace DGtal
     /// represents the boundary of the digital shape (at least a big
     /// component).
     static CountedPtr<Surface>
-    makeDigitalSurface( const KSpace& K, CountedPtr<BinaryImage> bimage )
+    makeDigitalSurfaceFromBinaryImage
+    ( const KSpace& K,
+      CountedPtr<BinaryImage> bimage )
     {
       SurfelAdjacency< KSpace::dimension > surfAdj( true );
 
@@ -506,9 +608,9 @@ namespace DGtal
       unsigned int        tries      = 0;
       do {
         try { // Search initial bel
-          bel = Surfaces<KSpace>::findABel( K, *bimage, 10000 );
+          bel = Surfaces<KSpace>::findABel( K, *bimage, 100000 );
         } catch (DGtal::InputException e) {
-          trace.error() << "[EstimatorHelpers::makeDigitalSurface]"
+          trace.error() << "[EstimatorHelpers::makeDigitalSurfaceFromBinaryImage]"
 			<< " ERROR Unable to find bel." << std::endl;
           return ptrSurface;
         }
@@ -517,13 +619,11 @@ namespace DGtal
         ptrSurface = CountedPtr<Surface>( new Surface( surfContainer ) ); // acquired
         nb_surfels = ptrSurface->size();
       } while ( ( nb_surfels < 2 * minsize ) && ( tries++ < 150 ) );
-      if( tries >= 150 )
-        {
-          trace.error() << "[EstimatorHelpers::makeDigitalSurface]"
+      if( tries >= 150 ) {
+	trace.warning() << "[EstimatorHelpers::makeDigitalSurfaceFromBinaryImage]"
 			<< "ERROR cannot find a proper bel in a big enough component."
 			<< std::endl;
-          return ptrSurface;
-        }
+      }
       return ptrSurface;
     }
 
