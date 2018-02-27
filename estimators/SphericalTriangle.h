@@ -192,7 +192,8 @@ namespace DGtal
     {
       Scalar alpha, beta, gamma;
       interiorAngles( alpha, beta, gamma );
-      return ( (alpha + beta + gamma) == 0.0 ) ? 0.0 : 2.0*M_PI - alpha - beta - gamma;
+      return ( (alpha == 0.0) || (beta == 0.0) || (gamma == 0.0) )
+	       ? 0.0 : 2.0*M_PI - alpha - beta - gamma;
     }
 
     /// @return the (signed) area of the spherical triangle (below 2pi).

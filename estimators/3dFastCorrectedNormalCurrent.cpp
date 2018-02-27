@@ -211,25 +211,27 @@ int main( int argc, char** argv )
   auto surfels  = EH::computeDepthFirstSurfelRange( surface );
   trace.endBlock();
 
-  trace.beginBlock( "Compute true curvature" );
-  normals         = EH::computeTrueNormals   ( K, shape, h, surfels );
-  expected_values = ( ( quantity == "H" ) || ( quantity == "Mu1" )
+  if ( vm.count( "polynomial" ) ) {
+    trace.beginBlock( "Compute true curvature" );
+    normals         = EH::computeTrueNormals   ( K, shape, h, surfels );
+    expected_values = ( ( quantity == "H" ) || ( quantity == "Mu1" )
 		      || ( quantity == "HII" ) )
-    ? EH::computeMeanCurvatures( K, shape, h, surfels )
-    : EH::computeGaussianCurvatures( K, shape, h, surfels );
-  //expected_values = EH::computeGaussianCurvatures( K, shape, h, surfels );
-  expected_curv.addValues( expected_values.begin(), expected_values.end() );
-  expected_curv.terminate();
-  trace.info() << "- truth curv: avg = " << expected_curv.mean() << std::endl;
-  trace.info() << "- truth curv: min = " << expected_curv.min() << std::endl;
-  trace.info() << "- truth curv: max = " << expected_curv.max() << std::endl;
-  trace.endBlock();
-
+      ? EH::computeMeanCurvatures( K, shape, h, surfels )
+      : EH::computeGaussianCurvatures( K, shape, h, surfels );
+    //expected_values = EH::computeGaussianCurvatures( K, shape, h, surfels );
+    expected_curv.addValues( expected_values.begin(), expected_values.end() );
+    expected_curv.terminate();
+    trace.info() << "- truth curv: avg = " << expected_curv.mean() << std::endl;
+    trace.info() << "- truth curv: min = " << expected_curv.min() << std::endl;
+    trace.info() << "- truth curv: max = " << expected_curv.max() << std::endl;
+    trace.endBlock();
+  }
   if ( ( quantity == "HII" ) || ( quantity == "GII" ) )
     {
       trace.beginBlock( "Compute II curvature estimations" );
       normals         = EH::computeIINormals( vm, K, bimage, surfels );
-      measured_values = ( ( quantity == "H" ) || ( quantity == "Mu1" ) )
+      measured_values = ( ( quantity == "H" ) || ( quantity == "Mu1" )
+			  || ( quantity == "HII" ) )
 	? EH::computeIIMeanCurvatures    ( vm, K, bimage, surfels )
 	: EH::computeIIGaussianCurvatures( vm, K, bimage, surfels );
       for ( unsigned int i = 0; i < measured_values.size(); ++i )
