@@ -15,6 +15,7 @@ SET(DGTAL_TOOLS_SRC
 
 if (WITH_EIGEN)
     add_executable(volSurfaceRegularization volSurfaceRegularization.cpp volSurfaceRegularization-details/surface_approx.cpp)
+    target_include_directories(volSurfaceRegularization PUBLIC /usr/local/include/eigen3)
     target_link_libraries(volSurfaceRegularization ${DGTAL_LIBRARIES} ${DGtalToolsLibDependencies})
 endif()
 
