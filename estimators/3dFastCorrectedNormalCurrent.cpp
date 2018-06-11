@@ -115,13 +115,15 @@ int main( int argc, char** argv )
   EH::optionsNoisyImage      ( general_opt );
   EH::optionsNormalEstimators( general_opt );
   general_opt.add_options()
-    ( "quantity,Q", po::value<std::string>()->default_value( "Mu1" ), "the quantity that is evaluated in Mu0|Mu1|Mu2|H|G, with H := Mu1/(2Mu0) and G := Mu2/Mu0" )
+    ( "quantity,Q", po::value<std::string>()->default_value( "Mu1" ), "the quantity that is evaluated in Mu0|Mu1|Mu2|H|G|HII|GII, with H := Mu1/(2Mu0) and G := Mu2/Mu0, and HII and GII are the mean and gaussian curvatures estimated by II." )
     ( "crisp,C", "when specified, when computing measures in a ball, do not approximate the relative intersection of cells with the ball but only consider if the cell centroid is in the ball (faster by 30%, but less accurate)." );
 #ifdef WITH_VISU3D_QGLVIEWER
   EH::optionsDisplayValues   ( general_opt );
   general_opt.add_options()
-    ( "view,V", po::value<std::string>()->default_value( "Measure" ), "the display mode in Measure|Truth|IICurvature|Error" );
+    ( "view,V", po::value<std::string>()->default_value( "Measure" ), "the display mode in Measure|Truth|Error|None" );
 #endif
+  general_opt.add_options()
+    ( "error", po::value<std::string>()->default_value( "error.txt" ), "the name of the output file that sum up l2 and loo errors in estimation." );
   
   po::variables_map vm;
   bool parseOK = EH::args2vm( general_opt, argc, argv, vm );
@@ -194,49 +196,53 @@ int main( int argc, char** argv )
 
   auto quantity = vm[ "quantity" ].as<std::string>();
   auto view     = vm[ "view" ].as<std::string>();
+  auto h        = vm[ "gridstep" ].as<double>();
+  const double mcoef = vm["m-coef"].as<double>();
+  const double mpow  = vm["m-pow"].as<double>();
+  const double mr    = mcoef*pow( h, mpow );
   std::vector<double>     displayed_values;
   std::vector<double>     measured_values;
   std::vector<double>     expected_values;
   std::vector<RealVector> normals;
+  Statistic<double>       expected_curv;
+  Statistic<double>       measured_curv;
   
   trace.beginBlock( "Compute surfels" );
-  auto h        = vm[ "gridstep" ].as<double>();
   auto surfels  = EH::computeDepthFirstSurfelRange( surface );
   trace.endBlock();
 
-  if ( view == "Truth" || view == "Error" )
-    {
-      trace.beginBlock( "Compute true curvature" );
-      normals         = EH::computeTrueNormals   ( K, shape, h, surfels );
-      expected_values = ( ( quantity == "H" ) || ( quantity == "Mu1" ) )
-	? EH::computeMeanCurvatures( K, shape, h, surfels )
-	: EH::computeGaussianCurvatures( K, shape, h, surfels );
-      //expected_values = EH::computeGaussianCurvatures( K, shape, h, surfels );
-      Statistic<double>   curv;
-      curv.addValues( expected_values.begin(), expected_values.end() );
-      curv.terminate();
-      trace.info() << "- truth curv: avg = " << curv.mean() << std::endl;
-      trace.info() << "- truth curv: min = " << curv.min() << std::endl;
-      trace.info() << "- truth curv: max = " << curv.max() << std::endl;
-      trace.endBlock();
-    }
-  if ( view == "IICurvature" )
+  if ( vm.count( "polynomial" ) ) {
+    trace.beginBlock( "Compute true curvature" );
+    normals         = EH::computeTrueNormals   ( K, shape, h, surfels );
+    expected_values = ( ( quantity == "H" ) || ( quantity == "Mu1" )
+		      || ( quantity == "HII" ) )
+      ? EH::computeMeanCurvatures( K, shape, h, surfels )
+      : EH::computeGaussianCurvatures( K, shape, h, surfels );
+    //expected_values = EH::computeGaussianCurvatures( K, shape, h, surfels );
+    expected_curv.addValues( expected_values.begin(), expected_values.end() );
+    expected_curv.terminate();
+    trace.info() << "- truth curv: avg = " << expected_curv.mean() << std::endl;
+    trace.info() << "- truth curv: min = " << expected_curv.min() << std::endl;
+    trace.info() << "- truth curv: max = " << expected_curv.max() << std::endl;
+    trace.endBlock();
+  }
+  if ( ( quantity == "HII" ) || ( quantity == "GII" ) )
     {
       trace.beginBlock( "Compute II curvature estimations" );
       normals         = EH::computeIINormals( vm, K, bimage, surfels );
-      measured_values = ( ( quantity == "H" ) || ( quantity == "Mu1" ) )
+      measured_values = ( ( quantity == "H" ) || ( quantity == "Mu1" )
+			  || ( quantity == "HII" ) )
 	? EH::computeIIMeanCurvatures    ( vm, K, bimage, surfels )
 	: EH::computeIIGaussianCurvatures( vm, K, bimage, surfels );
-      Statistic<double>   curv;
       for ( unsigned int i = 0; i < measured_values.size(); ++i )
-	curv.addValue( measured_values[ i ] );
-      curv.terminate();
-      trace.info() << "- curv: avg = " << curv.mean() << std::endl;
-      trace.info() << "- curv: min = " << curv.min() << std::endl;
-      trace.info() << "- curv: max = " << curv.max() << std::endl;
+	measured_curv.addValue( measured_values[ i ] );
+      measured_curv.terminate();
+      trace.info() << "- II curv: avg = " << measured_curv.mean() << std::endl;
+      trace.info() << "- II curv: min = " << measured_curv.min() << std::endl;
+      trace.info() << "- II curv: max = " << measured_curv.max() << std::endl;
       trace.endBlock();
     }
-  if ( view == "Measure" || view == "Error" )
+  else // if ( view == "Measure" || view == "Error" )
     {
       trace.beginBlock( "Compute normal estimations" );
       normals  = EH::computeNormals( vm, K, shape, surface, bimage, surfels );
@@ -245,9 +251,6 @@ int main( int argc, char** argv )
       trace.beginBlock( "Computing corrected normal current" );
       Current C( fastDS, h, vm.count( "crisp" ) );
       C.setCorrectedNormals( surfels.begin(), surfels.end(), normals.begin() );
-      const double mcoef = vm["m-coef"].as<double>();
-      const double mpow  = vm["m-pow"].as<double>();
-      const double mr    = mcoef*pow( h, mpow );
       trace.info() << C << " m-ball-r = " << mr << "(continuous)"
 		   << " " << (mr/h) << " (discrete)" << std::endl;
       double              area = 0.0;
@@ -290,57 +293,100 @@ int main( int argc, char** argv )
 	  trace.info() << "compute total Gauss curvature" << std::endl;
 	  for ( auto f : fastDS.allFaces() ) intG += C.mu2( f );
 	}
-      if ( quantity == "Mu0" ) measured_values = mu0;
+      if ( quantity == "Mu0" )      measured_values = mu0;
       else if ( quantity == "Mu1" ) measured_values = mu1;
       else if ( quantity == "Mu2" ) measured_values = mu2;
       else if ( quantity == "H" )
 	{
 	  measured_values.resize( surfels.size() );
-	  std::transform( mu0.cbegin(), mu0.cend(), mu1.cbegin(), measured_values.begin(),
+	  std::transform( mu0.cbegin(), mu0.cend(),
+			  mu1.cbegin(), measured_values.begin(),
 			  [] ( double m0, double m1 ) { return m1 / (2.0*m0); } );
 	}
       else if ( quantity == "G" )
 	{
 	  measured_values.resize( surfels.size() );
-	  std::transform( mu0.cbegin(), mu0.cend(), mu2.cbegin(), measured_values.begin(),
+	  std::transform( mu0.cbegin(), mu0.cend(),
+			  mu2.cbegin(), measured_values.begin(),
 			  [] ( double m0, double m2 ) { return m2 / m0; } );
 	}
-      Statistic<double>   curv;
-      for ( i = 0; i < j; ++i ) curv.addValue( measured_values[ i ] );
-      curv.terminate();
-      trace.info() << "- area      = " << area << std::endl;
-      trace.info() << "- total G   = " << intG << std::endl;
-      trace.info() << "- curv: avg = " << curv.mean() << std::endl;
-      trace.info() << "- curv: min = " << curv.min() << std::endl;
-      trace.info() << "- curv: max = " << curv.max() << std::endl;
+      for ( i = 0; i < j; ++i ) measured_curv.addValue( measured_values[ i ] );
+      measured_curv.terminate();
+      trace.info() << "- CNC area      = " << area << std::endl;
+      trace.info() << "- CNC total G   = " << intG << std::endl;
+      trace.info() << "- CNC curv: avg = " << measured_curv.mean() << std::endl;
+      trace.info() << "- CNC curv: min = " << measured_curv.min() << std::endl;
+      trace.info() << "- CNC curv: max = " << measured_curv.max() << std::endl;
       trace.endBlock();
     }
 
 #ifdef WITH_VISU3D_QGLVIEWER
-  typedef Viewer3D<Space,KSpace> MyViewever3D;
-  typedef Display3DFactory<Space,KSpace> MyDisplay3DFactory;
-
-  trace.beginBlock( "View measure" );
-  trace.info() << "view mode is " << view << std::endl;
-  trace.info() << "#mvalues=" << measured_values.size() << std::endl;
-  trace.info() << "#evalues=" << expected_values.size() << std::endl;
-  MyViewever3D viewer( K );
-  viewer.show();
-  if ( ( view == "Measure" ) || ( view == "IICurvature" ) )
-    displayed_values = measured_values;
-  else if ( view == "Truth" )
-    displayed_values = expected_values;
-  else if ( view == "Error" )
-    displayed_values = EH::absoluteDifference( measured_values, expected_values );
-  trace.info() << "#surfels=" << surfels.size() << std::endl;
-  trace.info() << "#dvalues=" << displayed_values.size() << std::endl;
-  EH::viewSurfelValues( viewer, vm, surfels, displayed_values, normals );
-  EH::viewSurfaceIsolines( viewer, vm, surface, surfels, displayed_values );
-  viewer << MyViewever3D::updateDisplay;
-  application.exec();
+  if ( view != "None" ) {
+    typedef Viewer3D<Space,KSpace> MyViewever3D;
+    typedef Display3DFactory<Space,KSpace> MyDisplay3DFactory;
+    
+    trace.beginBlock( "View measure" );
+    trace.info() << "view mode is " << view << std::endl;
+    trace.info() << "#mvalues=" << measured_values.size() << std::endl;
+    trace.info() << "#evalues=" << expected_values.size() << std::endl;
+    MyViewever3D viewer( K );
+    viewer.show();
+    if ( view == "Measure" ) 
+      displayed_values = measured_values;
+    else if ( view == "Truth" )
+      displayed_values = expected_values;
+    else if ( view == "Error" )
+      displayed_values = EH::absoluteDifference( measured_values, expected_values );
+    trace.info() << "#surfels=" << surfels.size() << std::endl;
+    trace.info() << "#dvalues=" << displayed_values.size() << std::endl;
+    EH::viewSurfelValues( viewer, vm, surfels, displayed_values, normals );
+    EH::viewSurfaceIsolines( viewer, vm, surface, surfels, displayed_values );
+    viewer << MyViewever3D::updateDisplay;
+    application.exec();
+    trace.endBlock();
+  }
+#endif
+  if ( ! vm.count( "polynomial" ) ) return 0;
+  
+  trace.beginBlock( "Output statistics" );
+  auto error_fname = vm[ "error" ].as<std::string>();
+  std::ofstream ferr;
+  ferr.open ( error_fname.c_str(),
+	      std::ofstream::out | std::ofstream::app );
+  if ( ! ferr.good() )
+    trace.warning() << "Unable to open file " << error_fname << std::endl;
+  ferr << "######################################################################"
+       << std::endl;
+  ferr << "# ";
+  for ( int i = 0; i < argc; ++i ) ferr << " " << argv[ i ];
+  ferr << std::endl;
+  ferr << "#---------------------------------------------------------------------"
+       << std::endl;
+  ferr << "# Q=" << quantity
+       << " P="  << vm[ "polynomial" ].as<std::string>()
+       << " mr= " << mr << "(continuous)"
+       << " mrd=" << (mr/h) << " (discrete)" << std::endl;
+  ferr << "# h size l1 l2 loo"
+       << " m_mean m_dev m_min m_max"
+       << " exp_mean exp_dev exp_min exp_max " << std::endl;
+  ferr << h << " " << measured_values.size()
+       << " " << EH::normL1 ( measured_values, expected_values )
+       << " " << EH::normL2 ( measured_values, expected_values )
+       << " " << EH::normLoo( measured_values, expected_values )
+       << " " << measured_curv.mean()
+       << " " << sqrt( measured_curv.variance() )
+       << " " << measured_curv.min()
+       << " " << measured_curv.max()
+       << " " << expected_curv.mean()
+       << " " << sqrt( expected_curv.variance() )
+       << " " << expected_curv.min()
+       << " " << expected_curv.max()
+       << std::endl;
+  ferr << "#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
+       << std::endl;
+  ferr.close();
   trace.endBlock();
   
-#endif
   return 0;
 }
 

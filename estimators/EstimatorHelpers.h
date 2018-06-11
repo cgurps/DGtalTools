@@ -1132,6 +1132,54 @@ namespace DGtal
       return result;
     }
 
+    /// Computes the l2-norm of v1-v2, ie the square root of the
+    /// mean-squared error of the two vectors.
+    ///
+    /// @param[in] v1 any vector of values.
+    /// @param[in] v2 any vector of values.
+    /// @return the normL2 of v1-v2, ie. sqrt( 1/n sum_i (v1[i]-v2[i])^2 ).
+    static Scalar
+    normL2( const std::vector< Scalar > & v1,
+	    const std::vector< Scalar > & v2 )
+    {
+      Scalar sum = 0;
+      for ( unsigned int i = 0; i < v1.size(); i++ )
+	sum += ( v1[ i ] - v2[ i ] ) * ( v1[ i ] - v2[ i ] );
+      return sqrt( sum / v1.size() );
+    }
+
+    /// Computes the l1-norm of v1-v2, ie the average of the absolute
+    /// differences of the two vectors.
+    ///
+    /// @param[in] v1 any vector of values.
+    /// @param[in] v2 any vector of values.
+    /// @return the normL1 of v1-v2, ie. 1/n sum_i |v1[i]-v2[i]|.
+    static Scalar
+    normL1( const std::vector< Scalar > & v1,
+	    const std::vector< Scalar > & v2 )
+    {
+      Scalar sum = 0;
+      for ( unsigned int i = 0; i < v1.size(); i++ )
+	sum += fabs( v1[ i ] - v2[ i ] );
+      return sum / v1.size();
+    }
+
+    /// Computes the loo-norm of v1-v2, ie the maximum of the absolute
+    /// differences of the two vectors.
+    ///
+    /// @param[in] v1 any vector of values.
+    /// @param[in] v2 any vector of values.
+    /// @return the normLoo of v1-v2, ie. max_i |v1[i]-v2[i]|.
+    static Scalar
+    normLoo( const std::vector< Scalar > & v1,
+	     const std::vector< Scalar > & v2 )
+    {
+      Scalar loo = 0;
+      for ( unsigned int i = 0; i < v1.size(); i++ )
+	loo = std::max( loo, fabs( v1[ i ] - v2[ i ] ) );
+      return loo;
+    }
+    
 #ifdef WITH_VISU3D_QGLVIEWER
     static ColorMap
     makeColorMap( const po::variables_map& vm,
