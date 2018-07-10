@@ -4,7 +4,7 @@
 # -----------------------------------------------------------------------------
 PROJECT(DGtalTools)
 
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required (VERSION 3.1)
 
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
 
@@ -14,7 +14,7 @@ SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
 # -----------------------------------------------------------------------------
 message(STATUS "-------------------------------------------------------------------------------")
 message(STATUS "Checking if DGtal is installed:")
-FIND_PACKAGE(DGtal 0.9.3 REQUIRED)
+FIND_PACKAGE(DGtal 0.9.4 REQUIRED)
 INCLUDE_DIRECTORIES(${DGTAL_INCLUDE_DIRS})
 LINK_DIRECTORIES(${DGTAL_LIBRARY_DIRS})
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
@@ -42,7 +42,7 @@ endif (CMAKE_CXX_FLAGS MATCHES "-ftemplate-depth-[0-9]*")
 SET(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 SET(DGtalTools_VERSION_MAJOR 0)
 SET(DGtalTools_VERSION_MINOR 9)
-SET(DGtalTools_VERSION_PATCH 3)
+SET(DGtalTools_VERSION_PATCH 4)
 SET(DGTALTOOLS_VERSION "${DGtalTools_VERSION_MAJOR}.${DGtalTools_VERSION_MINOR}.${DGtalTools_VERSION_PATCH}")
 SET(PROJECT_VERSION "${DGtalTools_VERSION_MAJOR}.${DGtalTools_VERSION_MINOR}.${DGtalTools_VERSION_PATCH}")
 SET(VERSION ${DGtalTools_VERSION_MAJOR}.${DGtalTools_VERSION_MINOR}.${DGtalTools_VERSION_PATCH})

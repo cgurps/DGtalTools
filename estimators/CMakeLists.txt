@@ -13,6 +13,12 @@ SET(DGTAL_TOOLS_SRC
   3dFastCorrectedNormalCurrent
 )
 
+if (WITH_EIGEN)
+    add_executable(volSurfaceRegularization volSurfaceRegularization.cpp volSurfaceRegularization-details/surface_approx.cpp)
+    target_include_directories(volSurfaceRegularization PUBLIC /usr/local/include/eigen3)
+    target_link_libraries(volSurfaceRegularization ${DGTAL_LIBRARIES} ${DGtalToolsLibDependencies})
+endif()
+
 if ( WITH_VISU3D_QGLVIEWER )
   SET(VISU3D_TESTS_SRC
       3dCurveTangentEstimator
@@ -25,7 +31,7 @@ endif ( WITH_VISU3D_QGLVIEWER )
 
 if (  WITH_CGAL )
   SET(CGAL_TESTS_SRC
-#    3dLocalEstimators 
+#    3dLocalEstimators
      )
   FOREACH(FILE ${CGAL_TESTS_SRC})
     add_executable(${FILE} ${FILE})

@@ -7,6 +7,7 @@ if(WITH_EIGEN)
     )
   FOREACH(FILE ${DGTAL_TOOLS_SRC})
     add_executable(${FILE} ${FILE})
+    target_include_directories(${FILE} PUBLIC /usr/local/include/eigen3)
     target_link_libraries (${FILE} ${DGTAL_LIBRARIES} ${DGtalToolsLibDependencies} )
     install(TARGETS ${FILE}
       RUNTIME DESTINATION bin

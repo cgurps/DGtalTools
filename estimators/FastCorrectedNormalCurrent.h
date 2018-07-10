@@ -44,7 +44,7 @@
 #include <map>
 #include "DGtal/base/Common.h"
 #include "DGtal/topology/CDigitalSurfaceContainer.h"
-#include "DGtal/shapes/IndexedDigitalSurface.h"
+#include "DGtal/topology/IndexedDigitalSurface.h"
 #include "DGtal/graph/DistanceBreadthFirstVisitor.h"
 #include "SphericalTriangle.h"
 
@@ -461,7 +461,6 @@ namespace DGtal
     /// d\mathcal{H}^2 \f$.
     Scalar computeMu0( Vertex c )
     {
-      ASSERT( space().sDim( c ) == 2 );
       return Hmeasure( 2 ) * myTrivialNormals[ c ].dot( myCorrectedNormals[ c ] );
     }
 

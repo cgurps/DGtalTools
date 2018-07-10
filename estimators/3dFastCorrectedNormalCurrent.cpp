@@ -83,7 +83,7 @@ void missingParam( std::string param )
   trace.info() << std::endl;
 }
 
-namespace po = boost::program_options;
+//namespace po = DGtal::po;
 
 int main( int argc, char** argv )
 {
