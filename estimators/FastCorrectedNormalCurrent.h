@@ -299,9 +299,16 @@ namespace DGtal
       auto faces = theSurface->allFaces();
       for ( auto f : faces ) myMu2[ f ] = computeMu2( f );
     }
+    /// Computes all measures muOmega per face.
+    void computeAllMuOmega()
+    {
+      myMuOmega.resize( theSurface->nbArcs() );
+      auto arcs = theSurface->allArcs();
+      for ( auto a : arcs ) myMuOmega[ a ] = computeMuOmega( a );
+    }
     
 
-    // ----------------------- Indexed Digital Surface services ------------------------------------
+    // ----------------------- Indexed Digital Surface services --------------------------
   public:
 
     /// @param[in] v any vertex index.
@@ -571,6 +578,65 @@ namespace DGtal
 	}
       return S;
     }
+
+    /// \f$ \mu_Omega \f$ Lipschitz-Killing measure, i.e. the measure
+    /// associated to the symplectic form. It corresponds to a measure
+    /// of the inconcistency between the given normal field and the
+    /// geometry normal field. It may be non null only on 1-cells (or
+    /// Arc). The measure is oriented, but gives the same result of an
+    /// arc and its opposite.
+    ///
+    /// @param[in] a any arc (ie a 1-cell in-between two 2-cells on 3D digital
+    /// surfaces).
+    ///
+    /// @return the corrected symplectic form measure \f$ \mu_Omega := \vec{e}
+    /// \cdot (\vec{u}_i - \vec{u}_j) d\mathcal{H}^1 \f$.
+    Scalar muOmega( Arc arc )
+    {
+      return myMuOmega[ arc ];
+    }
+    
+    /// \f$ \mu_Omega \f$ Lipschitz-Killing measure, i.e. the measure
+    /// associated to the symplectic form. It corresponds to a measure
+    /// of the inconcistency between the given normal field and the
+    /// geometry normal field. It may be non null only on 1-cells (or
+    /// Arc). The measure is oriented, but gives the same result of an
+    /// arc and its opposite.
+    ///
+    /// @param[in] a any arc (ie a 1-cell in-between two 2-cells on 3D digital
+    /// surfaces).
+    ///
+    /// @return the corrected  symplectic form measure \f$ \mu_Omega := \vec{e}
+    /// \cdot (\vec{u}_i - \vec{u}_j) d\mathcal{H}^1 \f$.
+    Scalar computeMuOmega( Arc arc )
+    {
+      const KSpace & K = space();
+      Vertex   si_plus = theSurface->tail( arc );
+      Vertex  si_minus = theSurface->head( arc );
+      Surfel    s_plus = theSurface->surfel( si_plus );
+      Surfel   s_minus = theSurface->surfel( si_minus );
+      Cell       linel = K.unsigns( theSurface->linel( arc ) ); 
+      Dimension      l = *( K.uDirs( linel ) );
+      Cell         pta = K.uIncident( linel, l, true );
+      Cell         ptb = K.uIncident( linel, l, false );
+      auto       faces = theSurface->facesAroundArc( arc );
+      if ( faces.size() != 1 )
+	faces = theSurface->facesAroundArc( theSurface->opposite( arc ) );	
+      Cell       pivot = K.unsigns( theSurface->pointel( faces[ 0 ] ) );
+      if ( pivot != pta ) std::swap( pta, ptb );
+      RealPoint      a = computeCentroid( pta );
+      RealVector     e = ( computeCentroid( ptb ) - a ).getNormalized();
+      RealPoint     s0 = myVertexCentroids[ si_plus ];
+      RealPoint     s1 = myVertexCentroids[ si_minus ];
+      // s_plus must be to the left of e.
+      // if ( e.crossProduct( s0 - a ).dot( myTrivialNormals[ s_plus ] ) < 0.0 )
+      // 	   std::swap( s_plus, s_minus );
+      // Computes u_+ and u_-, then their cross product.
+      RealVector    u_p = myCorrectedNormals[ si_plus ];
+      RealVector    u_m = myCorrectedNormals[ si_minus ];
+      return  Hmeasure( 1 ) * e.dot( u_p - u_m );
+    }
+
     
     Scalar mu0( RealPoint p, Scalar r, Vertex c )
     {
@@ -599,6 +665,15 @@ namespace DGtal
       return ri != 0.0 ? ri * mu2( f ) : 0.0;
     }
 
+    Scalar muOmega( RealPoint p, Scalar r, Arc a )
+    {
+      SCell aLinel = theSurface->linel( a ); // oriented 1-cell
+      Scalar    ri = myCrisp
+	? sCrispIntersection( p, r, aLinel )
+	: sRelativeIntersection( p, r, aLinel );
+      return ri != 0.0 ? ri * muOmega( a ) : 0.0;
+    }
+    
     struct SquaredDistance2Point {
       typedef Scalar Value;
       FastCorrectedNormalCurrent& current;
@@ -701,6 +776,17 @@ namespace DGtal
       }
       return m2;
     }
+
+    Scalar muOmegaBall( Vertex vc, Scalar r )
+    {
+      ArcRange    arcs = getArcsInBall( vc, r );
+      Scalar        m1 = 0.0;
+      RealPoint      x = myVertexCentroids[ vc ];
+      for ( auto a : arcs ) {
+	m1      += muOmega( x, r, a ); 
+      }
+      return m1;
+    }
     
     // ----------------------- Interface --------------------------------------
   public:
@@ -742,8 +828,10 @@ namespace DGtal
     MeasureMap               myMu0;
     /// The map Arc -> mu1
     MeasureMap               myMu1;
-    /// The map Arc -> mu2
+    /// The map Face -> mu2
     MeasureMap               myMu2;
+    /// The map Arc -> muOmega
+    MeasureMap               myMuOmega;
     
     // ------------------------- Hidden services ------------------------------
   protected:

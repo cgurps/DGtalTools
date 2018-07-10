@@ -154,6 +154,22 @@ namespace DGtal
 	}
     }
 
+    /// @return 'true' if the spherical triangle is too small or too thin.
+    bool isDegenerate() const
+    {
+      Scalar d[ 3 ] = { ( myA - myB ).norm(),
+			( myA - myC ).norm(),
+			( myB - myC ).norm() };
+      // Checks that the spherical triangle is small or thin.
+      if ( ( d[ 0 ] < 1e-8 ) || ( d[ 1 ] < 1e-8 ) || ( d[ 2 ] < 1e-8 ) )
+	return true;
+      // Checks that the spherical triangle is flat.
+      Dimension m = 0;
+      if ( d[ 1 ] > d[ m ] ) m = 1;
+      if ( d[ 2 ] > d[ m ] ) m = 2;
+      return ( fabs( d[ m ] - d[ (m+1)%3 ] - d[ (m+2)%3 ] ) < 1e-8 );
+    }
+    
     /// @return the polar triangle associated with this triangle.
     Self polarTriangle() const
     {
@@ -191,6 +207,7 @@ namespace DGtal
     Scalar area() const
     {
       Scalar alpha, beta, gamma;
+      if ( isDegenerate() ) return 0.0;
       interiorAngles( alpha, beta, gamma );
       return ( (alpha == 0.0) || (beta == 0.0) || (gamma == 0.0) )
 	       ? 0.0 : 2.0*M_PI - alpha - beta - gamma;

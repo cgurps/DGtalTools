@@ -115,7 +115,7 @@ int main( int argc, char** argv )
   EH::optionsNoisyImage      ( general_opt );
   EH::optionsNormalEstimators( general_opt );
   general_opt.add_options()
-    ( "quantity,Q", po::value<std::string>()->default_value( "Mu1" ), "the quantity that is evaluated in Mu0|Mu1|Mu2|H|G|HII|GII, with H := Mu1/(2Mu0) and G := Mu2/Mu0, and HII and GII are the mean and gaussian curvatures estimated by II." )
+    ( "quantity,Q", po::value<std::string>()->default_value( "Mu1" ), "the quantity that is evaluated in Mu0|Mu1|Mu2|MuOmega|H|G|Omega|HII|GII, with H := Mu1/(2Mu0), G := Mu2/Mu0, Omega := MuOmega/sqrt(Mu0), and HII and GII are the mean and gaussian curvatures estimated by II." )
     ( "crisp,C", "when specified, when computing measures in a ball, do not approximate the relative intersection of cells with the ball but only consider if the cell centroid is in the ball (faster by 30%, but less accurate)." );
 #ifdef WITH_VISU3D_QGLVIEWER
   EH::optionsDisplayValues   ( general_opt );
@@ -156,7 +156,13 @@ int main( int argc, char** argv )
                   << std::endl;
       return 0;
     }
-  
+  auto quantity = vm[ "quantity" ].as<std::string>();
+  std::vector< std::string > quantities = { "Mu0", "Mu1", "Mu2", "MuOmega", "H", "G", "Omega", "HII", "GII" };
+  if ( std::count( quantities.begin(), quantities.end(), quantity ) == 0 ) {
+    trace.info() << "Quantity should be in Mu0|Mu1|Mu2|MuOmega|H|G|Omega|HII|GII."
+		 << std::endl;
+    return 0;
+  }
   // Digital space.
   KSpace                        K;
   unsigned int                 nb = 0;
@@ -194,7 +200,6 @@ int main( int argc, char** argv )
 	       << (fds_ok ? "Success" : "Error" ) << std::endl;
   trace.endBlock();
 
-  auto quantity = vm[ "quantity" ].as<std::string>();
   auto view     = vm[ "view" ].as<std::string>();
   auto h        = vm[ "gridstep" ].as<double>();
   const double mcoef = vm["m-coef"].as<double>();
@@ -258,20 +263,26 @@ int main( int argc, char** argv )
       std::vector<double> mu0( surfels.size() );
       std::vector<double> mu1( surfels.size() );
       std::vector<double> mu2( surfels.size() );
+      std::vector<double> muOmega( surfels.size() );
       bool       mu0_needed = true;
       bool       mu1_needed = false;
       bool       mu2_needed = false;
-      if ( quantity == "Mu0" ) mu0_needed = true;
-      if ( quantity == "Mu1" ) mu1_needed = true;
-      if ( quantity == "Mu2" ) mu2_needed = true;
-      if ( quantity == "H" )   mu0_needed = mu1_needed = true;
-      if ( quantity == "G" )   mu0_needed = mu2_needed = true;
+      bool   muOmega_needed = false;
+      if ( quantity == "Mu0" )     mu0_needed = true;
+      if ( quantity == "Mu1" )     mu1_needed = true;
+      if ( quantity == "Mu2" )     mu2_needed = true;
+      if ( quantity == "MuOmega" ) muOmega_needed = true;
+      if ( quantity == "H" )       mu0_needed = mu1_needed = true;
+      if ( quantity == "G" )       mu0_needed = mu2_needed = true;
+      if ( quantity == "Omega" )   mu0_needed = muOmega_needed = true;
       trace.info() << "computeAllMu0" << std::endl;
       if ( mu0_needed ) C.computeAllMu0();
       trace.info() << "computeAllMu1" << std::endl;
       if ( mu1_needed ) C.computeAllMu1();
       trace.info() << "computeAllMu2" << std::endl;
       if ( mu2_needed ) C.computeAllMu2();
+      trace.info() << "computeAllMuOmega" << std::endl;
+      if ( muOmega_needed ) C.computeAllMuOmega();
       //#pragma omp parallel for schedule(dynamic)
       trace.info() << "compute measures" << std::endl;
       Vertex              i = 0;
@@ -285,6 +296,7 @@ int main( int argc, char** argv )
 	  if ( mu0_needed ) mu0[ i ] = C.mu0Ball( v, mr );
 	  if ( mu1_needed ) mu1[ i ] = C.mu1Ball( v, mr );
 	  if ( mu2_needed ) mu2[ i ] = C.mu2Ball( v, mr );
+	  if ( muOmega_needed ) muOmega[ i ] = C.muOmegaBall( v, mr );
 	  ++i;
 	}
       // Computing total Gauss curvature.
@@ -293,9 +305,10 @@ int main( int argc, char** argv )
 	  trace.info() << "compute total Gauss curvature" << std::endl;
 	  for ( auto f : fastDS.allFaces() ) intG += C.mu2( f );
 	}
-      if ( quantity == "Mu0" )      measured_values = mu0;
-      else if ( quantity == "Mu1" ) measured_values = mu1;
-      else if ( quantity == "Mu2" ) measured_values = mu2;
+      if ( quantity == "Mu0" )          measured_values = mu0;
+      else if ( quantity == "Mu1" )     measured_values = mu1;
+      else if ( quantity == "Mu2" )     measured_values = mu2;
+      else if ( quantity == "MuOmega" ) measured_values = muOmega;
       else if ( quantity == "H" )
 	{
 	  measured_values.resize( surfels.size() );
@@ -309,6 +322,13 @@ int main( int argc, char** argv )
 	  std::transform( mu0.cbegin(), mu0.cend(),
 			  mu2.cbegin(), measured_values.begin(),
 			  [] ( double m0, double m2 ) { return m2 / m0; } );
+	}
+      else if ( quantity == "Omega" )
+	{
+	  measured_values.resize( surfels.size() );
+	  std::transform( mu0.cbegin(), mu0.cend(),
+			  muOmega.cbegin(), measured_values.begin(),
+			  [] ( double m0, double m2 ) { return m2 / sqrt( m0 ); } );
 	}
       for ( i = 0; i < j; ++i ) measured_curv.addValue( measured_values[ i ] );
       measured_curv.terminate();
