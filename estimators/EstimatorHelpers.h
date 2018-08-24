@@ -103,7 +103,7 @@ namespace DGtal {
       typedef RealPoint Argument;
       typedef Scalar Quantity;
       typedef Quantity Value;
-      
+
       /**
        * Constructor. A shape may also be attached at construction.
        *
@@ -111,7 +111,7 @@ namespace DGtal {
        * if a some counted pointer is handed.
        */
       ShapeGaussianCurvatureFunctor( ConstAlias<Shape> aShape = 0 ) : myShape( aShape ) {}
-      
+
       /**
        * Attach a shape.
        *
@@ -185,9 +185,9 @@ namespace DGtal
     typedef GradientColorMap<Scalar>                 ColorMap;
     typedef Viewer3D<Space,KSpace>                   Viewer;
     typedef Display3DFactory<Space,KSpace>           DisplayFactory;
-#endif    
+#endif
     // ------------------- parsing related functions -----------------------------
-    
+
     /// Parses command line given as \a argc, \a argv according to \a
     /// opts and fills in storage map \a vm.
     ///
@@ -215,7 +215,7 @@ namespace DGtal
 	}
       return parseOK;
     }
-    
+
     /// Parses command line given as a vector of strings \a args
     /// according to \a opts and fills in storage map \a vm.
     ///
@@ -241,7 +241,7 @@ namespace DGtal
 	}
       return parseOK;
     }
-    
+
     /// Parses a string, cuts it into words, analyzes it
     /// according to \a opts and fills in storage map \a vm.
     ///
@@ -264,8 +264,8 @@ namespace DGtal
       return vectorString2vm( opts, results, vm );
     }
 
-    
-    // ------------------- setting options related functions ---------------------------    
+
+    // ------------------- setting options related functions ---------------------------
     /// Add options for implicit shape given by a polynomial.
     static void optionsImplicitShape( po::options_description& desc )
     {
@@ -324,9 +324,9 @@ namespace DGtal
 	("maxValue", po::value<double>(), "a specified max value associated with highest color in colormap ." );
     }
 #endif
-    
+
     // ------------------- Shapes related functions -----------------------------
-    
+
     /// Returns a map associating a name and a polynomial,
     /// e.g. "sphere1", "x^2+y^2+z^2-1".
     ///
@@ -584,7 +584,7 @@ namespace DGtal
 	return makeNoisyBinaryImageFromBinaryImage( bimage, noiseLevel );
       }
     }
-    
+
     /// Builds a digital surface from a space \a K and a binary image \a bimage.
     ///
     /// @param[in] K the Khalimsky space whose domain encompasses the digital shape.
@@ -643,7 +643,7 @@ namespace DGtal
 		     [&result] ( Surfel s ) { result.push_back( s ); } );
       return result;
     }
-       
+
 
     /// Given a space \a K, an implicit \a shape, a sequence of \a
     /// surfels, and a gridstep \a h, returns the true normals at the
@@ -726,7 +726,7 @@ namespace DGtal
 			   std::back_inserter( n_true_estimations ) );
       return n_true_estimations;
     }
-    
+
     /// Given a digital space \a K and a sequence of \a surfels,
     /// returns the trivial normals at the specified surfels, in the
     /// same order.
@@ -794,7 +794,7 @@ namespace DGtal
 		      [] ( RealVector v ) { return -v; } );
       return n_estimations;
     }
-    
+
     /// Given a digital surface \a surface, a sequence of \a surfels,
     /// and some parameters \a vm, returns the normal Voronoi
     /// Covariance Measure (VCM) estimation at the specified surfels,
@@ -1035,7 +1035,7 @@ namespace DGtal
 			 std::back_inserter( mc_estimations ) );
       return mc_estimations;
     }
-    
+
     /// Given a digital shape \a bimage, a sequence of \a surfels,
     /// and some parameters \a vm, returns the gaussian curvature Integral
     /// Invariant (VCM) estimation at the specified surfels, in the
@@ -1080,8 +1080,8 @@ namespace DGtal
 			 std::back_inserter( mc_estimations ) );
       return mc_estimations;
     }
-    
-    
+
+
     /// Orient \a v so that it points in the same direction as \a
     /// ref_v (scalar product is then non-negative afterwards).
     ///
@@ -1091,7 +1091,7 @@ namespace DGtal
     orientVectors( const std::vector< RealVector > & ref_v,
 		   std::vector< RealVector > &       v )
     {
-      std::transform( ref_v.cbegin(), ref_v.cend(), v.cbegin(), v.begin(), 
+      std::transform( ref_v.cbegin(), ref_v.cend(), v.cbegin(), v.begin(),
 		      [] ( RealVector rw, RealVector w )
 		      { return rw.dot( w ) >= 0.0 ? w : -w; } );
     }
@@ -1126,7 +1126,7 @@ namespace DGtal
 			const std::vector< Scalar > & v2 )
     {
       std::vector< Scalar > result( v1.size() );
-      std::transform( v2.cbegin(), v2.cend(), v1.cbegin(), result.begin(), 
+      std::transform( v2.cbegin(), v2.cend(), v1.cbegin(), result.begin(),
 		      [] ( Scalar val1, Scalar val2 )
 		      { return fabs( val1 - val2 ); } );
       return result;
@@ -1179,7 +1179,7 @@ namespace DGtal
 	loo = std::max( loo, fabs( v1[ i ] - v2[ i ] ) );
       return loo;
     }
-    
+
 #ifdef WITH_VISU3D_QGLVIEWER
     static ColorMap
     makeColorMap( const po::variables_map& vm,
@@ -1233,11 +1233,11 @@ namespace DGtal
 	: * std::max_element( values.begin(), values.end() );
       // std::cout << "m=" << m << " M=" << M << std::endl;
       ColorMap cmap = makeColorMap( vm, m, M );
-      // ColorMap cmap = ColorMap( m, M, CMAP_COOL ); 
+      // ColorMap cmap = ColorMap( m, M, CMAP_COOL );
       // std::cout << "colormap" << std::endl;
-      auto      itV  = values.cbegin(); 
-      auto      itN  = normals.cbegin(); 
-      auto      itNE = normals.cend(); 
+      auto      itV  = values.cbegin();
+      auto      itN  = normals.cbegin();
+      auto      itNE = normals.cend();
       // std::cout << "first value=" << *itV << std::endl;
       Surfel  dummy;
       viewer << SetMode3D( dummy.className(), "Basic" );
@@ -1254,7 +1254,7 @@ namespace DGtal
 	    viewer << *it;
 	}
     }
-    
+
     static void
     viewSurfaceIsolines( Viewer& viewer,
 			 const po::variables_map&     vm,
@@ -1271,16 +1271,16 @@ namespace DGtal
       const KSpace& K = surface->container().space();
       // Create map Surfel -> Value
       std::map<Surfel,Scalar> map_values;
-      auto      itV = values.begin(); 
+      auto      itV = values.begin();
       for ( auto it = surfels.begin(), itE = surfels.end(); it != itE; ++it )
 	map_values[ *it ] = *itV++;
-      
+
       // Display isolines.
       const Scalar l_zero = vm[ "zero" ].as<double>();
       const Scalar l_tics = vm[ "tics" ].as<double>();
       const ColorMap cmap = makeTicsColorMap( m, M );
 
-      const RealPoint  st = RealPoint::diagonal( -0.5 ); 
+      const RealPoint  st = RealPoint::diagonal( -0.5 );
       for ( auto it = surfels.begin(), itE = surfels.end(); it != itE; ++it )
 	{
 	  Vertex       s = *it;
@@ -1289,7 +1289,7 @@ namespace DGtal
 	  ArcRange  arcs = surface->outArcs( s );
 	  for ( auto a : arcs )
 	    {
-	      Vertex       t = surface->head( a ); 
+	      Vertex       t = surface->head( a );
 	      Scalar   val_t = map_values[ t ] - l_zero;
 	      Integer band_t = (Integer) floor( val_t / l_tics );
 	      if ( band_s < band_t )
@@ -1311,7 +1311,7 @@ namespace DGtal
 	}
     }
 #endif
-    
+
   }; // END of class EstimatorHelpers
 
 } // namespace DGtal
