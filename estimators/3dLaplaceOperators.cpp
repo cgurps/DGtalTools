@@ -148,263 +148,126 @@ int main( int argc, char** argv )
       return 0;
     }
 
-  // Digital space.
-  KSpace                        K;
-  unsigned int                 nb = 0;
-  CountedPtr<BinaryImage>  bimage( nullptr );
-  CountedPtr<ImplicitShape> shape( nullptr );
-
-  trace.beginBlock( "Make Shape" );
-  if ( vm.count( "polynomial" ) )
-    {
-      shape        = EH::makeImplicitShape ( vm );
-      auto dshape  = EH::makeImplicitDigitalShapeFromImplicitShape( vm, shape, K );
-      auto size    = dshape->getDomain().upperBound() - dshape->getDomain().lowerBound();
-      trace.info() << "- Domain size is " << ( size[ 0 ] + 1 )
-		   << " x " << ( size[ 1 ] + 1 )
-		   << " x " << ( size[ 2 ] + 1 ) << std::endl;
-      bimage       = EH::makeNoisyOrNotBinaryImageFromImplicitDigitalShape( vm, dshape );
-    }
-  else if ( vm.count( "input" ) )
-    {
-      bimage       = EH::makeNoisyOrNotBinaryImageFromVolFile( vm, K );
-    }
-  std::for_each( bimage->cbegin(), bimage->cend(),
-		 [&nb] ( bool v ) { nb += v ? 1 : 0; } );
-  trace.info() << "- digital shape has " << nb << " voxels." << std::endl;
-  auto surface = EH::makeDigitalSurfaceFromBinaryImage( K, bimage );
-  if ( surface == 0 ) {
-      trace.info() << "- surface is empty (either empty or full volume). "
-		   << std::endl;
-      return 1;
-  }
-  trace.info() << "- surface component has " << surface->size()<< " surfels." << std::endl;
-  trace.endBlock();
-
-  trace.beginBlock( "Compute surfels" );
-  auto surfels  = EH::computeDepthFirstSurfelRange( surface );
-  trace.endBlock();
-
-  const Scalar h  = vm["gridstep"].as<Scalar>();
-  std::vector<RealVector> normals;
-  if ( vm.count( "polynomial" ) )
+  //while( vm["gridstep"].as<Scalar>() > 0.01 )
   {
-    trace.beginBlock( "Compute estimated normals" );
-    normals = EH::computeIINormals   ( vm, K, bimage, surfels );
+    KSpace                        K;
+    unsigned int                 nb = 0;
+    CountedPtr<BinaryImage>  bimage( nullptr );
+    CountedPtr<ImplicitShape> shape( nullptr );
+
+    trace.beginBlock( "Make Shape" );
+    if ( vm.count( "polynomial" ) )
+      {
+        shape        = EH::makeImplicitShape ( vm );
+        auto dshape  = EH::makeImplicitDigitalShapeFromImplicitShape( vm, shape, K );
+        auto size    = dshape->getDomain().upperBound() - dshape->getDomain().lowerBound();
+        trace.info() << "- Domain size is " << ( size[ 0 ] + 1 )
+	  	   << " x " << ( size[ 1 ] + 1 )
+	  	   << " x " << ( size[ 2 ] + 1 ) << std::endl;
+        bimage       = EH::makeNoisyOrNotBinaryImageFromImplicitDigitalShape( vm, dshape );
+      }
+    else if ( vm.count( "input" ) )
+      {
+        bimage       = EH::makeNoisyOrNotBinaryImageFromVolFile( vm, K );
+      }
+    std::for_each( bimage->cbegin(), bimage->cend(),
+	  	 [&nb] ( bool v ) { nb += v ? 1 : 0; } );
+    trace.info() << "- digital shape has " << nb << " voxels." << std::endl;
+    auto surface = EH::makeDigitalSurfaceFromBinaryImage( K, bimage );
+    if ( surface == 0 ) {
+        trace.info() << "- surface is empty (either empty or full volume). "
+	  	   << std::endl;
+        return 1;
+    }
+    trace.info() << "- surface component has " << surface->size()<< " surfels." << std::endl;
     trace.endBlock();
+
+    trace.beginBlock( "Compute surfels" );
+    auto surfels  = EH::computeDepthFirstSurfelRange( surface );
+    trace.endBlock();
+
+    const Scalar h  = vm["gridstep"].as<Scalar>();
+    std::vector<RealVector> normals;
+    if ( vm.count( "polynomial" ) )
+    {
+      trace.beginBlock( "Compute estimated normals" );
+      normals = EH::computeIINormals   ( vm, K, bimage, surfels );
+      trace.endBlock();
+    }
+
+    typedef DGtal::LaplaceOperatorHelpers<Scalar, KSpace> LaplaceOperatorHelpers;
+    typedef LaplaceOperatorHelpers::DenseVector DenseVector;
+    LaplaceOperatorHelpers laplaceOperatorHelpers;
+    laplaceOperatorHelpers.generateIndexedDigitalSurface( surface );
+    laplaceOperatorHelpers.generateTriangulatedSurface( surface );
+    laplaceOperatorHelpers.setNormals( surfels.begin(), surfels.end(), normals.begin() );
+    laplaceOperatorHelpers.setVariableMap( vm );
+
+    trace.info() << "There are " << std::distance( surfels.begin(), surfels.end() ) << " surfels." << std::endl;
+    trace.info() << "Indexed Digital Surface has " << laplaceOperatorHelpers.myIndexedDigitalSurface.nbVertices() << " faces." << std::endl;
+    trace.info() << "Triangulation has " << laplaceOperatorHelpers.myTriangulatedSurface.nbVertices() << " vertices." << std::endl;
+
+    // DIGITAL PART
+    {
+      LaplaceOperatorHelpers::SparseMatrix combiLaplace             = laplaceOperatorHelpers.computeCombinatorialLaplace();
+
+      trace.beginBlock("Laplace Heat");
+      DenseVector heatCurvature  = laplaceOperatorHelpers.computeHeatCurvatureFromFunctor();
+      trace.endBlock();
+      trace.beginBlock("Combi");
+      DenseVector combiCurvature = 0.5 * ( combiLaplace * laplaceOperatorHelpers.computeDualDigitalEmbedding() ).rowwise().lpNorm<2>() ;
+      trace.endBlock();
+
+      DenseVector realCurvature = Eigen::Map<DenseVector>( EH::computeMeanCurvatures( K, shape, h, surfels ).data(), surfels.size() ).cwiseAbs();
+      trace.beginBlock("II");
+      DenseVector IICurvature   = Eigen::Map<DenseVector>( EH::computeIIMeanCurvatures( vm, K, bimage, surfels ).data(), surfels.size() ).cwiseAbs();
+      trace.endBlock();
+      trace.beginBlock("JET");
+      DenseVector jetCurvature  = Eigen::Map<DenseVector>( EH::computeJetMeanCurvatures( vm, surface, surfels ).data(), surfels.size() ).cwiseAbs();
+      trace.endBlock();
+
+      DenseVector realReorD = laplaceOperatorHelpers.reorder( realCurvature, surfels.begin(), false ).cwiseAbs();
+
+      laplaceOperatorHelpers.exportErrors( realReorD, heatCurvature, "heat_errors.dat" );
+      laplaceOperatorHelpers.exportErrors( realReorD, combiCurvature, "combi_errors.dat" );
+      laplaceOperatorHelpers.exportErrors( realCurvature, IICurvature, "II_errors.dat" );
+      laplaceOperatorHelpers.exportErrors( realCurvature, jetCurvature, "jet_errors.dat" );
+
+      laplaceOperatorHelpers.exportDualQuantityToOBJ( realCurvature, "real_curvature.obj", surfels.begin() );
+      laplaceOperatorHelpers.exportDualQuantityToOBJ( IICurvature  , "II_curvature.obj"  , surfels.begin() );
+      laplaceOperatorHelpers.exportDualQuantityToOBJ( jetCurvature , "jet_curvature.obj" , surfels.begin() );
+      laplaceOperatorHelpers.exportDualQuantityToOBJ( heatCurvature, "heat_curvature.obj" );
+      laplaceOperatorHelpers.exportDualQuantityToOBJ( combiCurvature, "combi_curvature.obj" );
+    }
+
+    // TRIANGULATION PART
+    {
+      LaplaceOperatorHelpers::SparseMatrix cotanLaplace  = laplaceOperatorHelpers.computeCotanLaplace();
+      LaplaceOperatorHelpers::SparseMatrix rLocalLaplace = laplaceOperatorHelpers.computeRLocalLaplace();
+
+      trace.beginBlock("Laplace Heat Triangulation");
+      DenseVector heatCurvature  = laplaceOperatorHelpers.computeHeatCurvatureFromTriangulationFunctor();
+      trace.endBlock();
+      trace.beginBlock("Cotan");
+      DenseVector cotanCurvature  = 0.5 * ( cotanLaplace * laplaceOperatorHelpers.computeDualTriangulationEmbedding() ).rowwise().lpNorm<2>() ;
+      trace.endBlock();
+      trace.beginBlock("rLocal");
+      DenseVector rLocalCurvature = 0.5 * ( rLocalLaplace * laplaceOperatorHelpers.computeDualTriangulationEmbedding() ).rowwise().lpNorm<2>() ;
+      trace.endBlock();
+      DenseVector realCurvature = laplaceOperatorHelpers.computeRealCurvatureTriangulation( shape ).cwiseAbs();
+
+      laplaceOperatorHelpers.exportErrors( realCurvature, cotanCurvature, "cotan_errors.dat" );
+      laplaceOperatorHelpers.exportErrors( realCurvature, rLocalCurvature, "rLocal_errors.dat" );
+      laplaceOperatorHelpers.exportErrors( realCurvature, heatCurvature, "heat_triangulation_errors.dat" );
+
+      laplaceOperatorHelpers.exportTriangulationQuantityToOBJ( cotanCurvature, "cotan_curvature.obj" );
+      laplaceOperatorHelpers.exportTriangulationQuantityToOBJ( rLocalCurvature, "rLocal_curvature.obj" );
+      laplaceOperatorHelpers.exportTriangulationQuantityToOBJ( heatCurvature, "heat_triangulation_curvature.obj" );
+    }
+
+
+    vm.at("gridstep").value() = vm["gridstep"].as<Scalar>() / 1.3;
   }
-
-  typedef DGtal::LaplaceOperatorHelpers<Scalar, KSpace> LaplaceOperatorHelpers;
-  LaplaceOperatorHelpers laplaceOperatorHelpers;
-  laplaceOperatorHelpers.generateIndexedDigitalSurface( surface );
-  laplaceOperatorHelpers.generateTriangulatedSurface( surface );
-  laplaceOperatorHelpers.setNormals( surfels.begin(), surfels.end(), normals.begin() );
-  LaplaceOperatorHelpers::SparseMatrix heatLaplace              = laplaceOperatorHelpers.computeHeatLaplace( vm );
-  LaplaceOperatorHelpers::SparseMatrix heatLaplaceTriangulation = laplaceOperatorHelpers.computeHeatLaplaceTriangulation( vm );
-  LaplaceOperatorHelpers::SparseMatrix combiLaplace             = laplaceOperatorHelpers.computeCombinatorialLaplace();
-  LaplaceOperatorHelpers::SparseMatrix cotanLaplace             = laplaceOperatorHelpers.computeCotanLaplace( vm );
-  LaplaceOperatorHelpers::SparseMatrix rLocalLaplace            = laplaceOperatorHelpers.computeRLocalLaplace( vm );
-
-  LaplaceOperatorHelpers::DenseVector heatCurvature              = 0.5 * ( heatLaplace
-      * laplaceOperatorHelpers.computeDualDigitalEmbedding( vm ) ).rowwise().lpNorm<2>() ;
-  LaplaceOperatorHelpers::DenseVector heatCurvatureTriangulation = 0.5 * ( heatLaplaceTriangulation
-      * laplaceOperatorHelpers.computeDualTriangulationEmbedding( vm ) ).rowwise().lpNorm<2>() ;
-  LaplaceOperatorHelpers::DenseVector combiCurvature             = 0.5 * ( combiLaplace
-      * laplaceOperatorHelpers.computeDualDigitalEmbedding( vm ) ).rowwise().lpNorm<2>() ;
-  LaplaceOperatorHelpers::DenseVector cotanCurvature             = 0.5 * ( cotanLaplace
-      * laplaceOperatorHelpers.computeDualTriangulationEmbedding( vm ) ).rowwise().lpNorm<2>() ;
-  LaplaceOperatorHelpers::DenseVector rLocalCurvature            = 0.5 * ( rLocalLaplace
-      * laplaceOperatorHelpers.computeDualTriangulationEmbedding( vm ) ).rowwise().lpNorm<2>() ;
-  LaplaceOperatorHelpers::DenseVector realCurvature              = Eigen::Map<LaplaceOperatorHelpers::DenseVector>( EH::computeMeanCurvatures( K, shape, h, surfels ).data(), surfels.size() );
-
-  laplaceOperatorHelpers.exportDualQuantityToOBJ( realCurvature,
-      "real_curvature.obj", surfels.begin() );
-  laplaceOperatorHelpers.exportDualQuantityToOBJ( heatCurvature,
-      "heat_curvature.obj"   );
-  laplaceOperatorHelpers.exportDualQuantityToOBJ( heatCurvatureTriangulation,
-      "heat_curvature_triangulation.obj", true );
-  laplaceOperatorHelpers.exportDualQuantityToOBJ( combiCurvature,
-      "combi_curvature.obj"  );
-  laplaceOperatorHelpers.exportDualQuantityToOBJ( cotanCurvature,
-      "cotan_curvature.obj", true  );
-  laplaceOperatorHelpers.exportDualQuantityToOBJ( rLocalCurvature,
-      "rLocal_curvature.obj", true );
-
-//  if ( ( quantity == "HII" ) || ( quantity == "GII" ) )
-//    {
-//      trace.beginBlock( "Compute II curvature estimations" );
-//      normals         = EH::computeIINormals( vm, K, bimage, surfels );
-//      measured_values = ( ( quantity == "H" ) || ( quantity == "Mu1" )
-//			  || ( quantity == "HII" ) )
-//	? EH::computeIIMeanCurvatures    ( vm, K, bimage, surfels )
-//	: EH::computeIIGaussianCurvatures( vm, K, bimage, surfels );
-//      for ( unsigned int i = 0; i < measured_values.size(); ++i )
-//	measured_curv.addValue( measured_values[ i ] );
-//      measured_curv.terminate();
-//      trace.info() << "- II curv: avg = " << measured_curv.mean() << std::endl;
-//      trace.info() << "- II curv: min = " << measured_curv.min() << std::endl;
-//      trace.info() << "- II curv: max = " << measured_curv.max() << std::endl;
-//      trace.endBlock();
-//    }
-//  else // if ( view == "Measure" || view == "Error" )
-//    {
-//      trace.beginBlock( "Compute normal estimations" );
-//      normals  = EH::computeNormals( vm, K, shape, surface, bimage, surfels );
-//      trace.endBlock();
-//
-//      trace.beginBlock( "Computing corrected normal current" );
-//      Current C( fastDS, h, vm.count( "crisp" ) );
-//      C.setCorrectedNormals( surfels.begin(), surfels.end(), normals.begin() );
-//      trace.info() << C << " m-ball-r = " << mr << "(continuous)"
-//		   << " " << (mr/h) << " (discrete)" << std::endl;
-//      double              area = 0.0;
-//      double              intG = 0.0;
-//      std::vector<double> mu0( surfels.size() );
-//      std::vector<double> mu1( surfels.size() );
-//      std::vector<double> mu2( surfels.size() );
-//      std::vector<double> muOmega( surfels.size() );
-//      bool       mu0_needed = true;
-//      bool       mu1_needed = false;
-//      bool       mu2_needed = false;
-//      bool   muOmega_needed = false;
-//      if ( quantity == "Mu0" )     mu0_needed = true;
-//      if ( quantity == "Mu1" )     mu1_needed = true;
-//      if ( quantity == "Mu2" )     mu2_needed = true;
-//      if ( quantity == "MuOmega" ) muOmega_needed = true;
-//      if ( quantity == "H" )       mu0_needed = mu1_needed = true;
-//      if ( quantity == "G" )       mu0_needed = mu2_needed = true;
-//      if ( quantity == "Omega" )   mu0_needed = muOmega_needed = true;
-//      trace.info() << "computeAllMu0" << std::endl;
-//      if ( mu0_needed ) C.computeAllMu0();
-//      trace.info() << "computeAllMu1" << std::endl;
-//      if ( mu1_needed ) C.computeAllMu1();
-//      trace.info() << "computeAllMu2" << std::endl;
-//      if ( mu2_needed ) C.computeAllMu2();
-//      trace.info() << "computeAllMuOmega" << std::endl;
-//      if ( muOmega_needed ) C.computeAllMuOmega();
-//      //#pragma omp parallel for schedule(dynamic)
-//      trace.info() << "compute measures" << std::endl;
-//      Vertex              i = 0;
-//      Vertex              j = surfels.size();
-//      for ( auto aSurfel : surfels )
-//	{
-//	  // std::cout << i << " / " << j << std::endl;
-//	  trace.progressBar( i, j );
-//	  Vertex v = C.getVertex( aSurfel );
-//	  area    += C.mu0( v );
-//	  if ( mu0_needed ) mu0[ i ] = C.mu0Ball( v, mr );
-//	  if ( mu1_needed ) mu1[ i ] = C.mu1Ball( v, mr );
-//	  if ( mu2_needed ) mu2[ i ] = C.mu2Ball( v, mr );
-//	  if ( muOmega_needed ) muOmega[ i ] = C.muOmegaBall( v, mr );
-//	  ++i;
-//	}
-//      // Computing total Gauss curvature.
-//      if ( mu2_needed )
-//	{
-//	  trace.info() << "compute total Gauss curvature" << std::endl;
-//	  for ( auto f : fastDS.allFaces() ) intG += C.mu2( f );
-//	}
-//      if ( quantity == "Mu0" )          measured_values = mu0;
-//      else if ( quantity == "Mu1" )     measured_values = mu1;
-//      else if ( quantity == "Mu2" )     measured_values = mu2;
-//      else if ( quantity == "MuOmega" ) measured_values = muOmega;
-//      else if ( quantity == "H" )
-//	{
-//	  measured_values.resize( surfels.size() );
-//	  std::transform( mu0.cbegin(), mu0.cend(),
-//			  mu1.cbegin(), measured_values.begin(),
-//			  [] ( double m0, double m1 ) { return m1 / (2.0*m0); } );
-//	}
-//      else if ( quantity == "G" )
-//	{
-//	  measured_values.resize( surfels.size() );
-//	  std::transform( mu0.cbegin(), mu0.cend(),
-//			  mu2.cbegin(), measured_values.begin(),
-//			  [] ( double m0, double m2 ) { return m2 / m0; } );
-//	}
-//      else if ( quantity == "Omega" )
-//	{
-//	  measured_values.resize( surfels.size() );
-//	  std::transform( mu0.cbegin(), mu0.cend(),
-//			  muOmega.cbegin(), measured_values.begin(),
-//			  [] ( double m0, double m2 ) { return m2 / sqrt( m0 ); } );
-//	}
-//      for ( i = 0; i < j; ++i ) measured_curv.addValue( measured_values[ i ] );
-//      measured_curv.terminate();
-//      trace.info() << "- CNC area      = " << area << std::endl;
-//      trace.info() << "- CNC total G   = " << intG << std::endl;
-//      trace.info() << "- CNC curv: avg = " << measured_curv.mean() << std::endl;
-//      trace.info() << "- CNC curv: min = " << measured_curv.min() << std::endl;
-//      trace.info() << "- CNC curv: max = " << measured_curv.max() << std::endl;
-//      trace.endBlock();
-//    }
-//
-//#ifdef WITH_VISU3D_QGLVIEWER
-//  if ( view != "None" ) {
-//    typedef Viewer3D<Space,KSpace> MyViewever3D;
-//    typedef Display3DFactory<Space,KSpace> MyDisplay3DFactory;
-//
-//    trace.beginBlock( "View measure" );
-//    trace.info() << "view mode is " << view << std::endl;
-//    trace.info() << "#mvalues=" << measured_values.size() << std::endl;
-//    trace.info() << "#evalues=" << expected_values.size() << std::endl;
-//    MyViewever3D viewer( K );
-//    viewer.show();
-//    if ( view == "Measure" )
-//      displayed_values = measured_values;
-//    else if ( view == "Truth" )
-//      displayed_values = expected_values;
-//    else if ( view == "Error" )
-//      displayed_values = EH::absoluteDifference( measured_values, expected_values );
-//    trace.info() << "#surfels=" << surfels.size() << std::endl;
-//    trace.info() << "#dvalues=" << displayed_values.size() << std::endl;
-//    EH::viewSurfelValues( viewer, vm, surfels, displayed_values, normals );
-//    EH::viewSurfaceIsolines( viewer, vm, surface, surfels, displayed_values );
-//    viewer << MyViewever3D::updateDisplay;
-//    application.exec();
-//    trace.endBlock();
-//  }
-//#endif
-//  if ( ! vm.count( "polynomial" ) ) return 0;
-//
-//  trace.beginBlock( "Output statistics" );
-//  auto error_fname = vm[ "error" ].as<std::string>();
-//  std::ofstream ferr;
-//  ferr.open ( error_fname.c_str(),
-//	      std::ofstream::out | std::ofstream::app );
-//  if ( ! ferr.good() )
-//    trace.warning() << "Unable to open file " << error_fname << std::endl;
-//  ferr << "######################################################################"
-//       << std::endl;
-//  ferr << "# ";
-//  for ( int i = 0; i < argc; ++i ) ferr << " " << argv[ i ];
-//  ferr << std::endl;
-//  ferr << "#---------------------------------------------------------------------"
-//       << std::endl;
-//  ferr << "# Q=" << quantity
-//       << " P="  << vm[ "polynomial" ].as<std::string>()
-//       << " mr= " << mr << "(continuous)"
-//       << " mrd=" << (mr/h) << " (discrete)" << std::endl;
-//  ferr << "# h size l1 l2 loo"
-//       << " m_mean m_dev m_min m_max"
-//       << " exp_mean exp_dev exp_min exp_max " << std::endl;
-//  ferr << h << " " << measured_values.size()
-//       << " " << EH::normL1 ( measured_values, expected_values )
-//       << " " << EH::normL2 ( measured_values, expected_values )
-//       << " " << EH::normLoo( measured_values, expected_values )
-//       << " " << measured_curv.mean()
-//       << " " << sqrt( measured_curv.variance() )
-//       << " " << measured_curv.min()
-//       << " " << measured_curv.max()
-//       << " " << expected_curv.mean()
-//       << " " << sqrt( expected_curv.variance() )
-//       << " " << expected_curv.min()
-//       << " " << expected_curv.max()
-//       << std::endl;
-//  ferr << "#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
-//       << std::endl;
-//  ferr.close();
-//  trace.endBlock();
 
   return 0;
 }

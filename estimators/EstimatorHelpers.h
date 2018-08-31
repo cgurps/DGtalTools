@@ -74,6 +74,7 @@
 #include "DGtal/geometry/surfaces/estimation/IIGeometricFunctors.h"
 #include "DGtal/geometry/surfaces/estimation/IntegralInvariantVolumeEstimator.h"
 #include "DGtal/geometry/surfaces/estimation/IntegralInvariantCovarianceEstimator.h"
+#include <DGtal/geometry/surfaces/estimation/estimationFunctors/MongeJetFittingMeanCurvatureEstimator.h>
 #include "DGtal/io/readers/GenericReader.h"
 #ifdef WITH_VISU3D_QGLVIEWER
 #include "DGtal/io/colormaps/GradientColorMap.h"
@@ -339,9 +340,9 @@ namespace DGtal
 	       { "sphere9", "x^2+y^2+z^2-81" },
 	       { "ellipsoid", "3*x^2+2*y^2+z^2-90" },
 	       { "cylinder", "x^2+2*z^2-90" },
-	       { "torus",   "(x^2+y^2+z^2+6*6-2*2)^2-4*6*6*(x^2+y^2)" },
+	       { "torus",   "(x^2 + y^2 + z^2 + 100. - 25.)^2 - 4. * 100. * ( x^2 + y^2 )" },
 	       { "rcube",   "x^4+y^4+z^4-6561" },
-	       { "goursat", "-1*(8-0.03*x^4-0.03*y^4-0.03*z^4+2*x^2+2*y^2+2*z^2)" },
+	       { "goursat", "0.03 * ( x^4 + y^4 + z^4 ) - 2. * ( x^2 + y^2 + z^2 ) - 8." },
 	       { "distel",  "10000-(x^2+y^2+z^2+1000*(x^2+y^2)*(x^2+z^2)*(y^2+z^2))"},
 	       { "leopold", "(x^2*y^2*z^2+4*x^2+4*y^2+3*z^2)-100" },
 	       { "diabolo", "x^2-(y^2+z^2)^2" },
@@ -1033,6 +1034,56 @@ namespace DGtal
       ii_estimator.init( h, surfels.begin(), surfels.end() );
       ii_estimator.eval( surfels.begin(), surfels.end(),
 			 std::back_inserter( mc_estimations ) );
+      return mc_estimations;
+    }
+
+    /// Given a digital shape \a bimage, a sequence of \a surfels,
+    /// and some parameters \a vm, returns the mean curvature Integral
+    /// Invariant (VCM) estimation at the specified surfels, in the
+    /// same order.
+    ///
+    /// @param[in] vm the options sets in the variable map (arguments
+    /// given to the program). Recognized parameters are given in \ref
+    /// optionsNormalEstimators.
+    /// @param[in] K the digital space where the shape lives.
+    /// @param[in] bimage the characteristic function of the shape as a binary image (inside is true, outside is false).
+    /// @param[in] surfels the sequence of surfels at which we compute the normals
+    ///
+    /// @return the vector containing the estimated mean curvatures, in the
+    /// same order as \a surfels.
+    ///
+    /// @note It is better to have surfels in a specific order, as
+    /// given for instance by computeDepthFirstSurfelRange.
+    static std::vector< Scalar >
+    computeJetMeanCurvatures( const po::variables_map&     vm,
+				    CountedPtr<Surface>          surface,
+				    const std::vector< Surfel >& surfels )
+    {
+      typedef ExactPredicateLpSeparableMetric<Space,2> Metric;
+      typedef typename functors::MongeJetFittingMeanCurvatureEstimator<Surfel, CanonicSCellEmbedder<KSpace>> JetMeanCurvFunctor;
+      typedef LocalEstimatorFromSurfelFunctorAdapter< SurfaceContainer, Metric, JetMeanCurvFunctor, functors::ConstValue<double>> MeanCurvatureEstimator;
+
+      Scalar h     = vm[ "gridstep" ].as<Scalar>();
+      Scalar r     = vm[ "r-radius" ].as<Scalar>();
+      Scalar alpha = vm[ "alpha"    ].as<Scalar>();
+      if ( alpha != 1.0 ) r *= pow( h, alpha-1.0 );
+      trace.info() << " Jet Mean curvature alpha=" << alpha << std::endl;
+      trace.info() << " Jet Mean curvature r=" << (r*h)  << " (continuous) "
+		   << r << " (discrete)" << std::endl;
+
+      CanonicSCellEmbedder<KSpace> canonicSCellEmbedder( surface->container().space() );
+      JetMeanCurvFunctor jetFunctor( canonicSCellEmbedder, h );
+      functors::ConstValue<double> constFunctor( 1.0 );
+
+      MeanCurvatureEstimator meanCurvatureEstimator;
+      meanCurvatureEstimator.attach( *surface );
+      meanCurvatureEstimator.init( h, surfels.begin(), surfels.end() );
+      meanCurvatureEstimator.setParams( Z3i::l2Metric, jetFunctor, constFunctor, r );
+
+      std::vector<double> mc_estimations;
+      meanCurvatureEstimator.eval( surfels.begin(), surfels.end(),
+          std::back_inserter( mc_estimations ) );
+
       return mc_estimations;
     }
 

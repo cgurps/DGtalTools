@@ -74,6 +74,7 @@ namespace DGtal
     typedef typename EstimatorHelpers<KSpace>::Surface Surface;
     typedef typename EstimatorHelpers<KSpace>::SurfaceContainer SurfaceContainer;
     typedef typename EstimatorHelpers<KSpace>::SCell SCell;
+    typedef typename EstimatorHelpers<KSpace>::ImplicitShape ImplicitShape;
 
     typedef typename IndexedDigitalSurface<SurfaceContainer>::Vertex Vertex;
 
@@ -81,6 +82,8 @@ namespace DGtal
     TriangulatedSurface<RealPoint> myTriangulatedSurface;
 
     std::vector<RealPoint> myNormals;
+
+    po::variables_map myVM;
 
     std::map< typename Surface::Vertex, typename TriangulatedSurface<RealPoint>::Index > triangulationMap;
 
@@ -123,18 +126,145 @@ namespace DGtal
       trace.endBlock();
     }
 
+    void setVariableMap( po::variables_map& vm ) { myVM = vm; }
+
+    DenseVector
+    computeHeatCurvatureFromFunctor() const
+    {
+      DenseVector curvature( myIndexedDigitalSurface.nbVertices() );
+      #pragma omp parallel for
+      for( int v = 0; v < myIndexedDigitalSurface.nbVertices(); ++v )
+        curvature( v ) = 0.5 * heatLaplaceCurvatureFunctor( v ).norm();
+
+      return curvature;
+    }
+
+    DenseVector
+    computeHeatCurvatureFromTriangulationFunctor() const
+    {
+      const Scalar h  = myVM["gridstep"].as<Scalar>();
+      const Scalar h_mesh  = computeShapeRegularity( h );
+
+      DenseVector curvature( myTriangulatedSurface.nbVertices() );
+      DenseVector areas = computeAreaWeights();
+      #pragma omp parallel for
+      for( int v = 0; v < myTriangulatedSurface.nbVertices(); ++v )
+        curvature( v ) = 0.5 * heatLaplaceCurvatureFunctorTriangulation( v, areas, h_mesh ).norm();
+
+      return curvature;
+    }
+
+    RealPoint
+    heatLaplaceCurvatureFunctor( const typename IndexedDigitalSurface<SurfaceContainer>::Index& vertexIndex ) const
+    {
+      typedef typename IndexedDigitalSurface<SurfaceContainer>::Index Index;
+
+      const Scalar h  = myVM["gridstep"].as<Scalar>();
+      const Scalar mcoef = myVM["m-coef"].as<Scalar>();
+      const Scalar mpow  = myVM["m-pow"].as<Scalar>();
+      const Scalar t = mcoef * std::pow( h, mpow );
+      const Scalar cut_locus = ( log( - log( t ) + 2. ) + 2. ) * sqrt( 2. * t );
+
+      std::vector<unsigned char> visited( myIndexedDigitalSurface.nbVertices(), false );
+      visited[ vertexIndex ] = true;
+
+      std::queue<Index> toVisit;
+      toVisit.push( vertexIndex );
+
+      const RealPoint p = h * myIndexedDigitalSurface.position( vertexIndex );
+
+      RealPoint accum( 0., 0. ,0. );
+      while( ! toVisit.empty() )
+      {
+        const Index currentIndex = toVisit.front();
+        toVisit.pop();
+
+        std::vector<Index> neigh;
+        std::back_insert_iterator<std::vector<Index>> backIter( neigh );
+        myIndexedDigitalSurface.writeNeighbors( backIter, currentIndex );
+
+        for( const auto& v : neigh )
+        {
+          if( ! visited[v] && ( p - h * myIndexedDigitalSurface.position( v ) ).norm() < cut_locus )
+          {
+            visited[v] = true;
+            toVisit.push(v);
+          }
+        }
+
+        const Scalar l2_distance = ( h * myIndexedDigitalSurface.position( currentIndex ) - p ).norm();
+        const SCell sCell = myIndexedDigitalSurface.surfel( currentIndex );
+        const Scalar measure = std::pow( h, 2 ) * std::abs( myNormals[ currentIndex ][ myIndexedDigitalSurface.space().sOrthDir( sCell ) ] );
+
+        accum += ( measure / ( 4. * M_PI * t * t ) )
+          * std::exp( - l2_distance * l2_distance / ( 4. * t ) )
+          * ( h * myIndexedDigitalSurface.position( currentIndex ) - p );
+      }
+
+      return accum;
+    }
+
+    RealPoint
+    heatLaplaceCurvatureFunctorTriangulation( const typename TriangulatedSurface<RealPoint>::Index& vertexIndex, const DenseVector& areas, const Scalar& h_mesh ) const
+    {
+      typedef typename TriangulatedSurface<RealPoint>::Index Index;
+
+      const Scalar h  = myVM["gridstep"].as<Scalar>();
+      const Scalar mcoef = myVM["m-coef"].as<Scalar>();
+      const Scalar mpow  = myVM["m-pow"].as<Scalar>();
+      const Scalar t = mcoef * std::pow( h_mesh, mpow );
+      const Scalar cut_locus = ( log( - log( t ) + 2. ) + 2. ) * sqrt( 2. * t );
+
+      std::vector<unsigned char> visited( myTriangulatedSurface.nbVertices(), false );
+      visited[ vertexIndex ] = true;
+
+      std::queue<Index> toVisit;
+      toVisit.push( vertexIndex );
+
+      const RealPoint p = h * myTriangulatedSurface.position( vertexIndex );
+
+      RealPoint accum( 0., 0. ,0. );
+      while( ! toVisit.empty() )
+      {
+        const Index currentIndex = toVisit.front();
+        toVisit.pop();
+
+        std::vector<Index> neigh;
+        std::back_insert_iterator<std::vector<Index>> backIter( neigh );
+        myTriangulatedSurface.writeNeighbors( backIter, currentIndex );
+
+        for( const auto& v : neigh )
+        {
+          if( ! visited[v] && ( p - h * myTriangulatedSurface.position( v ) ).norm() < cut_locus )
+          {
+            visited[v] = true;
+            toVisit.push(v);
+          }
+        }
+
+        const Scalar l2_distance = ( h * myTriangulatedSurface.position( currentIndex ) - p ).norm();
+        const Scalar measure = 1. / areas( currentIndex );
+
+        accum += ( measure / ( 4. * M_PI * t * t ) )
+          * std::exp( - l2_distance * l2_distance / ( 4. * t ) )
+          * ( h * myTriangulatedSurface.position( currentIndex ) - p );
+      }
+
+      return accum;
+    }
+
     SparseMatrix
-    computeHeatLaplace( po::variables_map& vm ) const
+    computeHeatLaplace() const
     {
       trace.beginBlock("Computing Heat Laplace Operator Matrix");
 
       typedef typename IndexedDigitalSurface<SurfaceContainer>::Index Index;
 
-      const Scalar h  = vm["gridstep"].as<Scalar>();
-      const Scalar mcoef = vm["m-coef"].as<Scalar>();
-      const Scalar mpow  = vm["m-pow"].as<Scalar>();
+      const Scalar h  = myVM["gridstep"].as<Scalar>();
+      const Scalar mcoef = myVM["m-coef"].as<Scalar>();
+      const Scalar mpow  = myVM["m-pow"].as<Scalar>();
       const Scalar t = mcoef * std::pow( h, mpow );
-      const Scalar cut_locus = 2.5 * sqrt( 2. * t );
+      const Scalar cut_locus = 3.5 * sqrt( 2. * t );
 
       trace.info() << "t=" << t << std::endl;
       trace.info() << "cut_locus=" << cut_locus << std::endl;
@@ -145,48 +275,29 @@ namespace DGtal
       for( int v_i = 0; v_i < myIndexedDigitalSurface.nbVertices(); ++v_i )
       {
         std::vector<Triplet> localTriplets;
-        std::vector<unsigned char> visited( myIndexedDigitalSurface.nbVertices(), false );
-        std::queue<typename IndexedDigitalSurface<SurfaceContainer>::Index> pointToVisit;
-        pointToVisit.push( v_i );
-        visited[ v_i ] = true;
         const RealPoint p_i = h * myIndexedDigitalSurface.position( v_i );
+        Scalar accum = 0.;
 
-        int nb_visited = 0;
-        while( ! pointToVisit.empty() )
+        for( int v_j = 0; v_j < myIndexedDigitalSurface.nbVertices(); ++v_j )
         {
-          const auto v_current = pointToVisit.front();
-          pointToVisit.pop();
+          if( v_i == v_j ) continue;
 
-          std::vector<Index> neigh;
-          std::back_insert_iterator<std::vector<Index>> back_iter( neigh );
-          myIndexedDigitalSurface.writeNeighbors( back_iter, v_current );
-
-          for( auto const& vv : neigh )
-          {
-            if( ( p_i - h * myIndexedDigitalSurface.position( vv ) ).norm() < cut_locus && ! visited[ vv ] )
-            {
-              pointToVisit.push( vv );
-              visited[vv] = true;
-            }
-          }
-
-          if( v_current == v_i ) continue;
-
-          const RealPoint p_j = h * myIndexedDigitalSurface.position( v_current );
+          const RealPoint p_j = h * myIndexedDigitalSurface.position( v_j );
           const Scalar l2_distance = ( p_i - p_j ).norm();
 
-          const SCell surfel = myIndexedDigitalSurface.surfel( v_current );
-          const Scalar measure = std::pow( h, 2. ) * std::abs( myNormals[ v_current ][ myIndexedDigitalSurface.space().sOrthDir( surfel ) ] );
+          if( l2_distance < cut_locus )
+          {
+            const SCell surfel = myIndexedDigitalSurface.surfel( v_j );
+            const Scalar measure = std::pow( h, 2. ) * std::abs( myNormals[ v_j ][ myIndexedDigitalSurface.space().sOrthDir( surfel ) ] );
 
-          const Scalar laplace_value = ( measure / ( 4. * M_PI * t * t ) ) * std::exp( - l2_distance * l2_distance / ( 4. * t ) );
+            const Scalar laplace_value = ( measure / ( 4. * M_PI * t * t ) ) * std::exp( - l2_distance * l2_distance / ( 4. * t ) );
 
-          localTriplets.push_back( Triplet( v_i, v_current,   laplace_value ) );
-          localTriplets.push_back( Triplet( v_i, v_i, - laplace_value ) );
-
-          nb_visited++;
+            localTriplets.push_back( Triplet( v_i, v_j, laplace_value ) );
+            accum -= laplace_value;
+          }
         }
 
-        trace.info() << nb_visited << std::endl;
+        localTriplets.push_back( Triplet( v_i, v_i, accum ) );
 
         {
           #pragma omp critical
@@ -203,16 +314,17 @@ namespace DGtal
     }
 
     SparseMatrix
-    computeHeatLaplaceTriangulation( po::variables_map& vm ) const
+    computeHeatLaplaceTriangulation() const
     {
       trace.beginBlock("Computing Heat Laplace Operator Matrix");
 
       typedef typename TriangulatedSurface<RealPoint>::Index Index;
 
-      const Scalar h  = vm["gridstep"].as<Scalar>();
-      const Scalar mcoef = vm["m-coef"].as<Scalar>();
-      const Scalar mpow  = vm["m-pow"].as<Scalar>();
-      const Scalar t = mcoef * std::pow( h, mpow );
+      const Scalar h  = myVM["gridstep"].as<Scalar>();
+      const Scalar h_mesh  = computeShapeRegularity( h );
+      const Scalar mcoef = myVM["m-coef"].as<Scalar>();
+      const Scalar mpow  = myVM["m-pow"].as<Scalar>();
+      const Scalar t = mcoef * std::pow( h_mesh, mpow );
       const Scalar cut_locus = 2.5 * std::sqrt( 2. * t );
 
       trace.info() << "t=" << t << std::endl;
@@ -220,50 +332,32 @@ namespace DGtal
 
       std::vector<Triplet> laplaceTriplets;
 
-      DenseVector areaWeights = computeAreaWeights( vm );
+      DenseVector areaWeights = computeAreaWeights();
       #pragma omp parallel for
       for( int v_i = 0; v_i < myTriangulatedSurface.nbVertices(); ++v_i )
       {
         std::vector<Triplet> localTriplets;
-        std::vector<unsigned char> visited( myTriangulatedSurface.nbVertices(), false );
-        std::queue<Index> pointToVisit;
-        pointToVisit.push( v_i );
-        visited[ v_i ] = true;
         const RealPoint p_i = h * myTriangulatedSurface.position( v_i );
+        Scalar accum = 0.;
 
-        int nb_visited = 0;
-        while( ! pointToVisit.empty() )
+        for( int v_j = 0; v_j < myTriangulatedSurface.nbVertices(); ++v_j )
         {
-          const auto v_current = pointToVisit.front();
-          pointToVisit.pop();
-          std::vector<Index> neigh;
-          std::back_insert_iterator<std::vector<Index>> back_iter( neigh );
-          myTriangulatedSurface.writeNeighbors( back_iter, v_current );
+          if( v_i == v_j ) continue;
 
-          for( auto const& vv : neigh )
-          {
-            if( ( p_i - h * myTriangulatedSurface.position( vv ) ).norm() < cut_locus && ! visited[ vv ] )
-            {
-              pointToVisit.push( vv );
-              visited[vv] = true;
-            }
-          }
-
-          if( v_current == v_i ) continue;
-
-          const RealPoint p_j = h * myTriangulatedSurface.position( v_current );
+          const RealPoint p_j = h * myTriangulatedSurface.position( v_j );
           const Scalar l2_distance = ( p_i - p_j ).norm();
-          const Scalar measure = 1. / areaWeights( v_current );
 
-          const Scalar laplace_value = ( measure / ( 4. * M_PI * t * t ) ) * std::exp( - l2_distance * l2_distance / ( 4. * t ) );
+          if( l2_distance < cut_locus )
+          {
+            const Scalar measure = 1. / areaWeights( v_j );
+            const Scalar laplace_value = ( measure / ( 4. * M_PI * t * t ) ) * std::exp( - l2_distance * l2_distance / ( 4. * t ) );
 
-          localTriplets.push_back( Triplet( v_i, v_current,   laplace_value ) );
-          localTriplets.push_back( Triplet( v_i, v_i, - laplace_value ) );
-
-          nb_visited++;
+            localTriplets.push_back( Triplet( v_i, v_j, laplace_value ) );
+            accum -= laplace_value;
+          }
         }
 
-        trace.info() << nb_visited << std::endl;
+        localTriplets.push_back( Triplet( v_i, v_i, accum ) );
 
         {
           #pragma omp critical
@@ -287,7 +381,7 @@ namespace DGtal
       std::vector<Triplet> laplaceTriplets;
       for( auto const& v : myIndexedDigitalSurface.allVertices() )
       {
-        laplaceTriplets.push_back( Triplet( v, v, 1. ) );
+        laplaceTriplets.push_back( Triplet( v, v, - 1. ) );
 
         const auto outArcs = myIndexedDigitalSurface.outArcs( v );
         for( auto const& a : outArcs )
@@ -303,14 +397,14 @@ namespace DGtal
     }
 
     SparseMatrix
-    computeCotanLaplace ( po::variables_map& vm ) const
+    computeCotanLaplace () const
     {
       trace.beginBlock("Computing Cotan Laplace Matrix");
 
-      const Scalar h = vm["gridstep"].as<Scalar>();
+      const Scalar h = myVM["gridstep"].as<Scalar>();
       std::vector<Triplet> cotanTriplets;
       const auto cotan
-        = []( Scalar angle ) { return std::tan( M_PI_2 - angle ); };
+        = []( const Scalar& angle ) { return cos( angle ) / sin( angle ); };
       const auto vertex_weight
         = [&]( const typename TriangulatedSurface<RealPoint>::Arc& a )
         {
@@ -319,8 +413,8 @@ namespace DGtal
           const RealPoint p_k = h * myTriangulatedSurface.position( myTriangulatedSurface.head( myTriangulatedSurface.next( a ) ) );
           const RealPoint p_l = h * myTriangulatedSurface.position( myTriangulatedSurface.head( myTriangulatedSurface.next( myTriangulatedSurface.opposite( a ) ) ) );
 
-          const Scalar alpha = std::acos( ( ( p_i - p_k ) / ( p_i - p_k ).norm() ).dot( ( p_j - p_k ) / ( p_j - p_k ).norm() ) );
-          const Scalar beta  = std::acos( ( ( p_i - p_l ) / ( p_i - p_l ).norm() ).dot( ( p_j - p_l ) / ( p_j - p_l ).norm() ) );
+          const Scalar alpha = acos( ( ( p_i - p_k ) / ( p_i - p_k ).norm() ).dot( ( p_j - p_k ) / ( p_j - p_k ).norm() ) );
+          const Scalar beta  = acos( ( ( p_i - p_l ) / ( p_i - p_l ).norm() ).dot( ( p_j - p_l ) / ( p_j - p_l ).norm() ) );
 
           return 0.5 * ( cotan( alpha ) + cotan( beta ) );
         };
@@ -331,6 +425,8 @@ namespace DGtal
         {
           const Scalar laplaceValue = vertex_weight( a );
 
+          if( isnan( laplaceValue ) ) trace.error() << "[computeCotanLaplace] NAN HERE " << v << " -> " << a << std::endl;
+
           cotanTriplets.push_back( Triplet( v, myTriangulatedSurface.head( a ), laplaceValue ) );
           cotanTriplets.push_back( Triplet( v, v, - laplaceValue ) );
         }
@@ -338,7 +434,7 @@ namespace DGtal
 
       SparseMatrix op( myTriangulatedSurface.nbVertices(), myTriangulatedSurface.nbVertices() );
       op.setFromTriplets( cotanTriplets.begin(), cotanTriplets.end() );
-      DenseVector areaWeights = computeAreaWeights( vm );
+      DenseVector areaWeights = computeAreaWeights();
 
       trace.endBlock();
 
@@ -346,16 +442,16 @@ namespace DGtal
     }
 
     SparseMatrix
-    computeRLocalLaplace( po::variables_map& vm ) const
+    computeRLocalLaplace() const
     {
       trace.beginBlock("Computing RLocal Laplace Matrix");
 
       typedef typename TriangulatedSurface<RealPoint>::Index Index;
 
-      const Scalar h = vm["gridstep"].as<Scalar>();
+      const Scalar h = myVM["gridstep"].as<Scalar>();
       const Scalar h_mesh  = computeShapeRegularity( h );
-      const Scalar mcoef = vm["m-coef"].as<Scalar>();
-      const Scalar mpow  = vm["m-pow"].as<Scalar>();
+      const Scalar mcoef = myVM["m-coef"].as<Scalar>();
+      const Scalar mpow  = myVM["m-pow"].as<Scalar>();
       const Scalar r = mcoef * std::pow( h_mesh, mpow );
 
       trace.info() << "h_mesh=" << h_mesh << std::endl;
@@ -434,18 +530,18 @@ namespace DGtal
       SparseMatrix op( myTriangulatedSurface.nbVertices(), myTriangulatedSurface.nbVertices() );
       op.setFromTriplets( rTriplets.begin(), rTriplets.end() );
 
-      op = op * computeCotanLaplace( vm );
+      op = op * computeCotanLaplace();
       trace.endBlock();
 
       return op;
     }
 
     DenseMatrix
-    computePrimalEmbedding( po::variables_map& vm ) const
+    computePrimalEmbedding() const
     {
       trace.beginBlock("Computing Primal Embedding");
 
-      const Scalar h = vm["gridstep"].as<Scalar>();
+      const Scalar h = myVM["gridstep"].as<Scalar>();
       DenseMatrix primalEmbedding( myIndexedDigitalSurface.nbVertices(), 3 );
 
       //TODO
@@ -456,14 +552,14 @@ namespace DGtal
     }
 
     DenseMatrix
-    computeDualDigitalEmbedding( po::variables_map& vm ) const
+    computeDualDigitalEmbedding() const
     {
       trace.beginBlock("Computing Dual Embedding");
 
-      const Scalar h = vm["gridstep"].as<Scalar>();
+      const Scalar h = myVM["gridstep"].as<Scalar>();
       DenseMatrix dualEmbedding( myIndexedDigitalSurface.nbVertices(), 3 );
 
-      for( auto const& v : myIndexedDigitalSurface.allVertices() )
+      for( int v = 0; v < myIndexedDigitalSurface.nbVertices(); ++v )
         for( int dim = 0; dim < 3; ++dim )
           dualEmbedding( v, dim ) = h * myIndexedDigitalSurface.position( v )[ dim ];
 
@@ -473,11 +569,11 @@ namespace DGtal
     }
 
     DenseMatrix
-    computeDualTriangulationEmbedding( po::variables_map& vm ) const
+    computeDualTriangulationEmbedding() const
     {
       trace.beginBlock("Computing Dual Embedding");
 
-      const Scalar h = vm["gridstep"].as<Scalar>();
+      const Scalar h = myVM["gridstep"].as<Scalar>();
       DenseMatrix dualEmbedding( myTriangulatedSurface.nbVertices(), 3 );
 
       for( auto const& v : myTriangulatedSurface.allVertices() )
@@ -490,7 +586,7 @@ namespace DGtal
     }
 
     void
-    exportDualQuantityToOBJ( DenseVector& quantity, std::string filename, bool reorder = false )
+    exportDualQuantityToOBJ( DenseVector& quantity, std::string filename )
     {
       trace.beginBlock("Exporting Dual Quantity to OBJ");
 
@@ -503,22 +599,40 @@ namespace DGtal
       gradient.addColor( DGtal::Color( 255, 0  , 0   ) );
       gradient.addColor( DGtal::Color( 255, 255, 10  ) );
 
-      if( reorder )
-      {
-        DenseVector quantity_temp( quantity );
-        for( auto const& v : myIndexedDigitalSurface.allVertices() )
-        {
-          const typename KSpace::SCell sCell = myIndexedDigitalSurface.surfel( v );
-          const typename TriangulatedSurface<RealPoint>::Index index = triangulationMap.find( sCell )->second;
-          quantity.row( v ) = quantity.row( index );
-        }
-      }
-
       for( auto const& v : myIndexedDigitalSurface.allVertices() )
       {
         const typename Surface::SCell sCell = myIndexedDigitalSurface.surfel( v );
         board << SetMode3D( sCell.className(), "Basic" );
         board << CustomColors3D( gradient( quantity( v ) ), gradient( quantity( v ) ) );
+        board << sCell;
+      }
+
+      board.saveOBJ( filename, true );
+
+      trace.endBlock();
+    }
+
+    void
+    exportTriangulationQuantityToOBJ( DenseVector& quantity, std::string filename )
+    {
+      trace.beginBlock("Exporting Dual Quantity to OBJ");
+
+      trace.info() << "Filename is " << filename << std::endl;
+      trace.info() << "Min / Max : " << quantity.minCoeff() << " / " << quantity.maxCoeff() << std::endl;
+
+      DGtal::Board3D<> board;
+
+      DGtal::GradientColorMap<Scalar> gradient( quantity.minCoeff(), quantity.maxCoeff() );
+      gradient.addColor( DGtal::Color( 50 , 50 , 255 ) );
+      gradient.addColor( DGtal::Color( 255, 0  , 0   ) );
+      gradient.addColor( DGtal::Color( 255, 255, 10  ) );
+
+      for( const auto& v : myIndexedDigitalSurface.allVertices() )
+      {
+        const typename Surface::SCell sCell = myIndexedDigitalSurface.surfel( v );
+        const auto tIndex = triangulationMap.find( sCell )->second;
+        board << SetMode3D( sCell.className(), "Basic" );
+        board << CustomColors3D( gradient( quantity( tIndex ) ), gradient( quantity( tIndex ) ) );
         board << sCell;
       }
 
@@ -554,11 +668,43 @@ namespace DGtal
       trace.endBlock();
     }
 
+    void
+    exportErrors( DenseVector& groundTruth, DenseVector& estimation, std::string filename )
+    {
+      const Scalar h = myVM["gridstep"].as<Scalar>();
+      trace.info() << filename << " " << h << " " << ( groundTruth - estimation ).cwiseAbs().mean() << " " << ( groundTruth - estimation ).cwiseAbs().maxCoeff() << std::endl;
+
+      std::ofstream errors( filename, std::ofstream::app );
+      errors << h << " " << ( groundTruth - estimation ).cwiseAbs().mean() << " " << ( groundTruth - estimation ).cwiseAbs().maxCoeff() << std::endl;
+    }
+
+    template <typename TIterator>
+    DenseVector
+    reorder( DenseVector& quantity, TIterator begin, bool triangulation = false )
+    {
+      DenseVector reorderedVector( quantity.size() );
+      for( int i = 0; i < quantity.size(); ++i )
+      {
+        const auto cellIndex = ( triangulation ) ?
+          triangulationMap.find( *begin++ )->second :
+          myIndexedDigitalSurface.getVertex( *begin++ );
+
+        reorderedVector( cellIndex ) = quantity( i );
+      }
+
+      return reorderedVector;
+    }
+
+    void
+    signCurvature( DenseVector& input, DenseVector& output )
+    {
+      for( int i = 0; i < input.size(); ++i )
+        output( i ) *= ( output(i) * input( i ) < 0 ) ? -1. : 1.;
+    }
 
     Scalar
     computeShapeRegularity( const Scalar& h ) const
     {
-      trace.beginBlock("Computing Shape Regularity");
       Scalar sr = 0.;
 
       for( auto const& f : myTriangulatedSurface.allFaces() )
@@ -580,39 +726,54 @@ namespace DGtal
         if( circumradius > sr ) sr = circumradius;
       }
 
-      trace.endBlock();
-
       return sr;
     }
 
     DenseVector
-    computeAreaWeights( po::variables_map& vm ) const
+    computeRealCurvatureTriangulation( CountedPtr<ImplicitShape> shape )
     {
-      trace.beginBlock("Computing Area Weights on the Triangulated Surface");
+      DenseVector realCurv( myTriangulatedSurface.nbVertices() );
+      const Scalar h = myVM["gridstep"].as<Scalar>();
+
+      for( int v = 0; v < myTriangulatedSurface.nbVertices(); ++v )
+        realCurv( v ) = shape->meanCurvature( shape->nearestPoint( h * myTriangulatedSurface.position( v ) ) );
+
+      return realCurv;
+    }
+
+    DenseVector
+    computeAreaWeights() const
+    {
       DenseVector areaWeights = DenseVector::Zero( myTriangulatedSurface.nbVertices() );
       for( auto const& v : myTriangulatedSurface.allVertices() )
       {
         const auto facesAround = myTriangulatedSurface.facesAroundVertex( v );
         for( auto const& f : facesAround )
-          areaWeights( v ) += triangleArea( f, vm ) / 3.;
+          areaWeights( v ) += triangleArea( f ) / 3.;
+
+        if( isnan( areaWeights( v ) ) ) trace.error() << "[computeAreaWeights] NAN HERE " << v << std::endl;
       }
-      trace.info() << "Shape has " << areaWeights.sum() << " area." << std::endl;
-      trace.endBlock();
 
       return areaWeights.cwiseInverse();
     }
 
     Scalar
-    triangleArea( const typename TriangulatedSurface<RealPoint>::Face& f, po::variables_map& vm ) const
+    triangleArea( const typename TriangulatedSurface<RealPoint>::Face& f ) const
     {
-      const Scalar h = vm["gridstep"].as<Scalar>();
+      const Scalar h = myVM["gridstep"].as<Scalar>();
 
       const auto verticesAround = myTriangulatedSurface.verticesAroundFace( f );
       const RealPoint p = h * myTriangulatedSurface.position( verticesAround[0] );
       const RealPoint q = h * myTriangulatedSurface.position( verticesAround[1] );
       const RealPoint r = h * myTriangulatedSurface.position( verticesAround[2] );
 
-      return Scalar( 0.5 ) * ( r - p ).crossProduct( r - q ).norm();
+      const Scalar a = ( p - q ).norm();
+      const Scalar b = ( q - r ).norm();
+      const Scalar c = ( r - q ).norm();
+
+      const Scalar s = Scalar( 0.5 ) * ( a + b + c );
+
+      return sqrt( s * ( s -a ) * ( s - b ) * ( s - c ) );
     }
 
   }; // End Struct
